@@ -1,16 +1,16 @@
 # CEREV
 
-CEREV is intended to be a pre-execution evidence integrity layer for autonomous agents. Its purpose is to help an agent establish that the evidence supporting a proposed action is current, traceable, and acceptable under an explicit policy before execution is permitted.
+CEREV is a pre-execution evidence integrity layer for autonomous agents. It helps establish whether evidence supporting a proposed action is traceable and acceptable under an explicit policy before execution is permitted.
 
 ## Architectural thesis
 
-An agent should not move directly from retrieved information to an external action. CEREV is being designed as a boundary in that path: evidence is gathered and checked, policy is evaluated against that evidence, and an auditable decision can be produced before a downstream system acts. Evidence provenance and deterministic replay are intended to make that decision inspectable later.
-
-This describes the intended architecture. The repository contains an independent deterministic Client A SLA reference engine and a source-preserving evidence package for its canonical fixture. Cross-source conflict detection, policy decisions, permit issuance, replay, external service integration, and action execution are not implemented.
+An agent should not move directly from retrieved information to an external action. CEREV is designed as a boundary in that path: evidence is gathered and checked, policy is evaluated against that evidence, and an auditable disposition is produced before a downstream system acts. Evidence provenance and deterministic replay are intended to make decisions inspectable later.
 
 ## Current status
 
-This repository has completed **Phase 0: Repository Foundation**, **Phase 1: Canonical Evidence Fixture**, **Phase 2: Deterministic Reference Engine**, and **Phase 3: Evidence Architecture**. It contains a deterministic package for the five source datasets, preserving record identity, original values, version information, timestamp semantics, and scoped source authority. The independent reference engine calculates the March 2024 Client A SLA credit. Cross-source conflict resolution and execution controls remain deferred to later phases.
+The repository has completed **Phase 0: Repository Foundation**, **Phase 1: Canonical Evidence Fixture**, **Phase 2: Deterministic Reference Engine**, **Phase 3: Evidence Architecture**, and **Phase 4: Conflict Detection and Policy Gate**. It includes an independent Client A SLA reference calculation, a source-preserving evidence package for the five canonical datasets, deterministic cross-source conflict findings, and a separate fail-closed policy gate. The canonical proposed $4,800 credit is blocked against the independent $19,200 reference. Written-delivery evidence is absent and is not treated as verified.
+
+Permit issuance, receipts, replay, external service integration, and action execution are not implemented. No database, LLM, Zetaris, Nemotron, or PostgreSQL integration is included.
 
 ## Development
 
@@ -27,7 +27,7 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-Run the foundation checks:
+Run the project checks:
 
 ```sh
 pytest
@@ -35,20 +35,14 @@ ruff check .
 ruff format --check .
 ```
 
-The package currently has no runtime dependencies and does not read environment variables. Add configuration fields and any `.env.example` placeholders when a later phase introduces configuration requirements. Never put credentials in the repository.
+The package has no runtime dependencies and does not read environment variables. Never put credentials in the repository.
 
-## Planned module map
+## Module map
 
-The reference engine is implemented in `cerev/reference.py`; the source-preserving evidence layer is in `cerev/evidence.py`. The other modules below are reserved for later implementation and currently contain documentation only.
+- `cerev/reference.py`: deterministic Contract V4 SLA reference calculation.
+- `cerev/evidence.py`: source records, timestamp semantics, provenance, and evidence packages.
+- `cerev/conflicts.py`: deterministic cross-source findings linked to evidence.
+- `cerev/policy.py`: independent `PERMIT`/`BLOCK`/`ABSTAIN` policy evaluation.
+- `cerev/config.py`, `cerev/v21_simulation.py`, `cerev/validation.py`, `cerev/receipt.py`, `cerev/replay.py`, `cerev/permit.py`, `cerev/nonce.py`, `cerev/retrieval_direct.py`, and `cerev/adapter.py`: reserved modules for future phases.
 
-- `config`: explicit application configuration
-- `reference`: deterministic Contract V4 SLA reference calculation
-- `evidence`: source records, timestamp semantics, provenance, and evidence packages
-- `v21_simulation`: future simulated adapter behavior
-- `evidence` and `validation`: evidence records and validation
-- `policy`: policy evaluation
-- `receipt` and `replay`: decision records and deterministic replay
-- `permit` and `nonce`: execution permits and nonce coordination
-- `retrieval_direct` and `adapter`: retrieval and integration boundaries
-
-The `fixture/` directory contains the Phase 1 datasets and fixture guide. `mock_services/`, `demo/`, and `docs/` remain available for later phases. No database, LLM, Zetaris, or Nemotron integration is included.
+The `fixture/` directory contains the Phase 1 datasets and guide. `mock_services/` and `demo/` remain available for later phases. See [docs/conflict-detection-and-policy.md](docs/conflict-detection-and-policy.md) for Phase 4 behavior and limitations.
