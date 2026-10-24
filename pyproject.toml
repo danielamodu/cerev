@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = ["cryptography>=44.0"]
 
+[project.scripts]
+cerev-protected-demo = "cerev.demo:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",

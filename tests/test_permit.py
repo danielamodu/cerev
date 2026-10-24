@@ -156,7 +156,8 @@ def test_ed25519_signing_verification_and_public_key_identity(context) -> None:
 
 def test_tampered_signature_is_rejected(context) -> None:
     receipt, snapshot, private, permit = context
-    tampered = replace(permit, signature=permit.signature[:-1] + "A")
+    altered_first = "A" if permit.signature[0] != "A" else "B"
+    tampered = replace(permit, signature=altered_first + permit.signature[1:])
     assert not verify(tampered, receipt, snapshot, private).valid
 
 
