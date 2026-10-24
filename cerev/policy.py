@@ -12,6 +12,8 @@ from cerev.conflicts import ConflictReport
 from cerev.evidence import EvidencePackage, EvidenceRecord
 from cerev.reference import ReferenceCalculation
 
+POLICY_VERSION = "cerev-policy-v1"
+
 
 class Disposition(StrEnum):
     """Action disposition returned by the independent policy gate."""
