@@ -8,9 +8,9 @@ An agent should not move directly from retrieved information to an external acti
 
 ## Current status
 
-The repository has completed **Phase 0: Repository Foundation**, **Phase 1: Canonical Evidence Fixture**, **Phase 2: Deterministic Reference Engine**, **Phase 3: Evidence Architecture**, **Phase 4: Conflict Detection and Policy Gate**, and **Phase 5: Decision Receipts and Replay**. It includes an independent Client A SLA reference calculation, a source-preserving evidence package for the five canonical datasets, deterministic cross-source conflict findings, and a separate fail-closed policy gate. The canonical proposed $4,800 credit is blocked against the independent $19,200 reference. Written-delivery evidence is absent and is not treated as verified.
+The repository has completed **Phase 0: Repository Foundation**, **Phase 1: Canonical Evidence Fixture**, **Phase 2: Deterministic Reference Engine**, **Phase 3: Evidence Architecture**, **Phase 4: Conflict Detection and Policy Gate**, **Phase 5: Decision Receipts and Replay**, and **Phase 6: Cryptographic Execution Permits**. It includes an independent Client A SLA reference calculation, a source-preserving evidence package for the five canonical datasets, deterministic cross-source conflict findings, and a separate fail-closed policy gate. The canonical proposed $4,800 credit remains blocked against the independent $19,200 reference and cannot receive a permit. A separate hypothetical fully evidenced `PERMIT` scenario exercises the permit infrastructure.
 
-Permit issuance, signatures, external service integration, and action execution are not implemented. Phase 5 receipts and replay are local integrity and audit mechanisms; they do not authenticate sources or authorize execution. No database, LLM, Zetaris, Nemotron, or PostgreSQL integration is included.
+Phase 6 permits use Ed25519 signatures over canonical, action-specific claims and require successful receipt/evidence replay. The implementation does not execute actions, provide production key custody, maintain a revocation registry, or enforce nonce consumption/single-use. Receipts and signatures do not authenticate the truthfulness of upstream sources. No database, LLM, Zetaris, Nemotron, or PostgreSQL integration is included.
 
 ## Development
 
@@ -35,7 +35,7 @@ ruff check .
 ruff format --check .
 ```
 
-The package has no runtime dependencies and does not read environment variables. Never put credentials in the repository.
+The runtime dependency is `cryptography` for Ed25519; the package does not read environment variables. Never put credentials or private keys in the repository.
 
 ## Module map
 
@@ -45,6 +45,7 @@ The package has no runtime dependencies and does not read environment variables.
 - `cerev/policy.py`: independent `PERMIT`/`BLOCK`/`ABSTAIN` policy evaluation.
 - `cerev/receipt.py`: canonical immutable decision receipts and local JSON storage.
 - `cerev/replay.py`: replay from retained evidence snapshots and result comparison.
-- `cerev/config.py`, `cerev/v21_simulation.py`, `cerev/validation.py`, `cerev/permit.py`, `cerev/nonce.py`, `cerev/retrieval_direct.py`, and `cerev/adapter.py`: reserved modules for future phases.
+- `cerev/permit.py`: short-lived Ed25519 permits bound to a verified decision and exact action.
+- `cerev/config.py`, `cerev/v21_simulation.py`, `cerev/validation.py`, `cerev/nonce.py`, `cerev/retrieval_direct.py`, and `cerev/adapter.py`: reserved modules for future phases.
 
-The `fixture/` directory contains the Phase 1 datasets and guide. `mock_services/` and `demo/` remain available for later phases. See [docs/conflict-detection-and-policy.md](docs/conflict-detection-and-policy.md) for Phase 4 behavior and [docs/decision-receipts-and-replay.md](docs/decision-receipts-and-replay.md) for Phase 5 receipts, storage, replay, and limitations.
+The `fixture/` directory contains the Phase 1 datasets and guide. `mock_services/` and `demo/` remain available for later phases. See [docs/conflict-detection-and-policy.md](docs/conflict-detection-and-policy.md) for Phase 4 behavior, [docs/decision-receipts-and-replay.md](docs/decision-receipts-and-replay.md) for Phase 5, and [docs/execution-permits.md](docs/execution-permits.md) for Phase 6 guarantees and limitations.
