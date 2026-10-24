@@ -1,0 +1,95 @@
+{
+  "source_system": "operational_cms",
+  "dataset_id": "operational-cms-client-a-march-2024",
+  "policies": [
+    {
+      "source_record_id": "cms-policy-v1",
+      "policy_version": "V1",
+      "classification_notice_threshold_hours": 48,
+      "effective_from_date": null,
+      "effective_at": null,
+      "provenance": {
+        "source_system": "operational_cms",
+        "source_record_id": "cms-policy-v1",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": "V1"
+      },
+      "timestamp_notes": "The V1 start and end dates were not provided."
+    },
+    {
+      "source_record_id": "cms-policy-v2",
+      "policy_version": "V2",
+      "classification_notice_threshold_hours": 24,
+      "effective_from_date": "2024-02-01",
+      "effective_at": null,
+      "provenance": {
+        "source_system": "operational_cms",
+        "source_record_id": "cms-policy-v2",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": "V2"
+      },
+      "timestamp_notes": "Only the effective calendar date was supplied; time of day is unknown."
+    }
+  ],
+  "classifications": [
+    {
+      "source_record_id": "cms-classification-event-a-v2",
+      "event_id": "event-a",
+      "classification": "planned",
+      "policy_version": "V2",
+      "classified_at": null,
+      "provenance": {
+        "source_system": "operational_cms",
+        "source_record_id": "cms-classification-event-a-v2",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": "V2"
+      }
+    },
+    {
+      "source_record_id": "cms-classification-event-b-v2",
+      "event_id": "event-b",
+      "classification": "planned",
+      "policy_version": "V2",
+      "classified_at": null,
+      "provenance": {
+        "source_system": "operational_cms",
+        "source_record_id": "cms-classification-event-b-v2",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": "V2"
+      }
+    },
+    {
+      "source_record_id": "cms-classification-event-c-v2",
+      "event_id": "event-c",
+      "classification": "planned",
+      "policy_version": "V2",
+      "classified_at": null,
+      "provenance": {
+        "source_system": "operational_cms",
+        "source_record_id": "cms-classification-event-c-v2",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": "V2"
+      }
+    },
+    {
+      "source_record_id": "cms-classification-event-d-v2",
+      "event_id": "event-d",
+      "classification": "unscheduled",
+      "policy_version": "V2",
+      "classified_at": null,
+      "provenance": {
+        "source_system": "operational_cms",
+        "source_record_id": "cms-classification-event-d-v2",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": "V2"
+      }
+    }
+  ],
+  "policy_scope_note": "CMS V2 is an operational classification policy. It does not amend Contract V4 or establish compliance with Contract V4's independent written-notice condition."
+}

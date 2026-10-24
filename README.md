@@ -10,7 +10,7 @@ This describes the intended architecture. No evidence validation, policy evaluat
 
 ## Current status
 
-This repository is at **Phase 0: Repository Foundation**. It contains Python package and tooling scaffolding only. Business logic is intentionally deferred to later phases. There are no fixture records or mock service responses yet.
+This repository has completed **Phase 0: Repository Foundation** and **Phase 1: Canonical Evidence Fixture**. It contains Python package scaffolding and a deterministic, source-separated JSON fixture for the March 2024 Client A SLA-credit scenario. Tests cover fixture provenance, timestamps, required records, and independent scenario arithmetic. CEREV business logic remains deferred to later phases.
 
 ## Development
 
@@ -39,7 +39,7 @@ The package currently has no runtime dependencies and does not read environment 
 
 ## Planned module map
 
-The modules below are reserved for later implementation. At this phase they contain documentation only and expose no working behavior.
+The modules below are reserved for later implementation. They contain documentation only and expose no working behavior.
 
 - `config`: explicit application configuration
 - `reference` and `v21_simulation`: reference data and simulation
@@ -49,4 +49,4 @@ The modules below are reserved for later implementation. At this phase they cont
 - `permit` and `nonce`: execution permits and nonce coordination
 - `retrieval_direct` and `adapter`: retrieval and integration boundaries
 
-Supporting directories (`fixture`, `tests`, `mock_services`, `demo`, and `docs`) are present for future phases. No database, LLM, Zetaris, or Nemotron integration is included.
+The `fixture/` directory contains the Phase 1 datasets and fixture guide. `mock_services/`, `demo/`, and `docs/` remain available for later phases. No database, LLM, Zetaris, or Nemotron integration is included.
