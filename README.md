@@ -6,11 +6,11 @@ CEREV is intended to be a pre-execution evidence integrity layer for autonomous 
 
 An agent should not move directly from retrieved information to an external action. CEREV is being designed as a boundary in that path: evidence is gathered and checked, policy is evaluated against that evidence, and an auditable decision can be produced before a downstream system acts. Evidence provenance and deterministic replay are intended to make that decision inspectable later.
 
-This describes the intended architecture. The only calculation logic currently implemented is the independent, deterministic Client A SLA reference engine. General-purpose evidence validation, policy evaluation, permit issuance, replay, external service integration, and action execution are not implemented.
+This describes the intended architecture. The repository contains an independent deterministic Client A SLA reference engine and a source-preserving evidence package for its canonical fixture. Cross-source conflict detection, policy decisions, permit issuance, replay, external service integration, and action execution are not implemented.
 
 ## Current status
 
-This repository has completed **Phase 0: Repository Foundation**, **Phase 1: Canonical Evidence Fixture**, and **Phase 2: Deterministic Reference Engine**. It contains a source-separated JSON fixture and an independent calculation of the March 2024 Client A SLA credit. Tests cover fixture integrity, contractual exclusion rules, calculation boundaries, and fail-safe handling of missing evidence. Broader evidence integrity and execution controls remain deferred to later phases.
+This repository has completed **Phase 0: Repository Foundation**, **Phase 1: Canonical Evidence Fixture**, **Phase 2: Deterministic Reference Engine**, and **Phase 3: Evidence Architecture**. It contains a deterministic package for the five source datasets, preserving record identity, original values, version information, timestamp semantics, and scoped source authority. The independent reference engine calculates the March 2024 Client A SLA credit. Cross-source conflict resolution and execution controls remain deferred to later phases.
 
 ## Development
 
@@ -39,10 +39,11 @@ The package currently has no runtime dependencies and does not read environment 
 
 ## Planned module map
 
-The reference engine is implemented in `cerev/reference.py`. The other modules below are reserved for later implementation and currently contain documentation only.
+The reference engine is implemented in `cerev/reference.py`; the source-preserving evidence layer is in `cerev/evidence.py`. The other modules below are reserved for later implementation and currently contain documentation only.
 
 - `config`: explicit application configuration
 - `reference`: deterministic Contract V4 SLA reference calculation
+- `evidence`: source records, timestamp semantics, provenance, and evidence packages
 - `v21_simulation`: future simulated adapter behavior
 - `evidence` and `validation`: evidence records and validation
 - `policy`: policy evaluation
