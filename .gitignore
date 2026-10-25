@@ -26,6 +26,7 @@ htmlcov/
 *.sqlite3-journal
 *.sqlite3-shm
 *.sqlite3-wal
+.cerev/
 
 # Local configuration and secrets
 .env

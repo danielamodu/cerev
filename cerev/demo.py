@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from cerev.adapter import AuthorizationError, ProtectedExecutionAdapter, SQLiteExecutionStore
-from cerev.evidence import load_canonical_evidence_package
+from cerev.evidence import EvidencePackage
 from cerev.permit import (
     generate_signing_key,
     issue_execution_permit,
@@ -20,6 +20,11 @@ from cerev.permit import (
 from cerev.policy import POLICY_VERSION
 from cerev.receipt import evaluate_and_create_receipt, snapshot_from_receipt
 from cerev.reference import calculate_canonical_reference
+from cerev.source_adapters import (
+    EvidenceCollector,
+    adapter_for_store_directory,
+    seed_simulated_source_stores,
+)
 
 
 def run_demo(database_path: Path | None = None) -> dict[str, Any]:
@@ -69,7 +74,7 @@ def run_demo(database_path: Path | None = None) -> dict[str, Any]:
             encoding="utf-8",
         )
 
-        package = load_canonical_evidence_package(fixture_dir)
+        package = _collect_sample_package(fixture_dir, Path(temporary) / "positive-sources")
         receipt = evaluate_and_create_receipt(package, created_at=issued_at).receipt
         if receipt.disposition != "PERMIT":
             reasons = receipt.contents["evaluation"]["policy_gate"].get("reasons", [])
@@ -119,9 +124,10 @@ def run_demo(database_path: Path | None = None) -> dict[str, Any]:
         except AuthorizationError:
             altered_rejected = True
 
-        blocked = evaluate_and_create_receipt(
-            load_canonical_evidence_package(), created_at=issued_at
-        ).receipt
+        canonical_package = _collect_sample_package(
+            source_dir, Path(temporary) / "canonical-sources"
+        )
+        blocked = evaluate_and_create_receipt(canonical_package, created_at=issued_at).receipt
         blocked_rejected = False
         try:
             adapter.execute(
@@ -151,6 +157,14 @@ def _complete_hypothetical_notices(dataset: dict[str, Any]) -> None:
         start = starts[notice["event_id"]]
         notice["notice_at"] = (start - timedelta(hours=48)).isoformat().replace("+00:00", "Z")
         notice["delivery_form"] = "written"
+
+
+def _collect_sample_package(fixture_dir: Path, store_dir: Path) -> EvidencePackage:
+    seed_simulated_source_stores(fixture_dir, store_dir)
+    result = EvidenceCollector(adapter_for_store_directory(store_dir)).collect()
+    if not result.complete or result.package is None:
+        raise RuntimeError("Sample source collection did not produce a complete evidence package.")
+    return result.package
 
 
 def _complete_hypothetical_classifications(

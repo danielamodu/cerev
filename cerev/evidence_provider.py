@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
+from pathlib import Path
 from time import monotonic
 from typing import Protocol
 
 from cerev.evidence import EvidencePackage, EvidenceRecord
-from cerev.source_adapters import EvidenceCollection, EvidenceCollector
+from cerev.source_adapters import (
+    SOURCE_ADAPTER_TYPES,
+    EvidenceCollection,
+    EvidenceCollector,
+    adapter_for_store_directory,
+    seed_simulated_source_stores,
+)
 
 MAX_EVIDENCE_QUERY_RESULTS = 25
 
@@ -107,14 +117,19 @@ class EvidenceProvider(Protocol):
     def retrieve(self, lookup: EvidenceLookup) -> EvidenceProviderResult: ...
 
 
-class LocalSQLiteEvidenceProvider:
-    """Phase 8 simulation provider; the five independent stores remain independently queried."""
+class CollectedEvidenceProvider:
+    """Provider wrapper that exposes only complete results from the normal collector."""
 
     def __init__(
-        self, collector: EvidenceCollector, *, provider_id: str = "local-simulation"
+        self,
+        collector: EvidenceCollector,
+        *,
+        provider_id: str,
+        backend: str,
     ) -> None:
         self._collector = collector
         self.provider_id = provider_id
+        self.backend = backend
 
     def retrieve(self, lookup: EvidenceLookup) -> EvidenceProviderResult:
         started = monotonic()
@@ -139,11 +154,74 @@ class LocalSQLiteEvidenceProvider:
             records=records,
             metadata=EvidenceProviderMetadata(
                 provider_id=self.provider_id,
-                backend="phase8_sqlite_simulation",
+                backend=self.backend,
                 retrieved_at=retrieved_at,
                 elapsed_ms=elapsed_ms,
             ),
         )
+
+
+class LocalSQLiteEvidenceProvider(CollectedEvidenceProvider):
+    """Phase 8 simulation provider; all five independent stores are queried normally."""
+
+    def __init__(
+        self, collector: EvidenceCollector, *, provider_id: str = "local-simulation"
+    ) -> None:
+        super().__init__(
+            collector,
+            provider_id=provider_id,
+            backend="phase8_sqlite_simulation",
+        )
+
+
+class ZetarisEvidenceProvider(CollectedEvidenceProvider):
+    """Live provider; errors remain explicit and never fall back to local simulations."""
+
+    def __init__(self, collector: EvidenceCollector) -> None:
+        super().__init__(collector, provider_id="zetaris-live", backend="zetaris_ui_proxy")
+
+
+class EvidenceMode(StrEnum):
+    SAMPLE = "sample"
+    ZETARIS = "zetaris"
+
+
+def evidence_provider_from_environment(
+    environ: Mapping[str, str] | None = None,
+) -> EvidenceProvider:
+    """Select exactly the configured mode; missing or failed live setup never falls back."""
+    values = os.environ if environ is None else environ
+    raw_mode = values.get("CEREV_EVIDENCE_MODE", "")
+    try:
+        mode = EvidenceMode(raw_mode)
+    except ValueError as error:
+        raise ValueError("Set CEREV_EVIDENCE_MODE explicitly to 'sample' or 'zetaris'.") from error
+
+    if mode is EvidenceMode.SAMPLE:
+        root = Path(__file__).resolve().parents[1]
+        store_dir = Path(
+            values.get("CEREV_SAMPLE_STORE_DIR", str(root / ".cerev" / "sample-sources"))
+        )
+        databases = tuple(
+            store_dir / f"{adapter.source_id}.sqlite3" for adapter in SOURCE_ADAPTER_TYPES
+        )
+        present = tuple(path.exists() for path in databases)
+        if not any(present):
+            seed_simulated_source_stores(root / "fixture", store_dir)
+        elif not all(present):
+            raise ValueError(
+                "Sample source directory is only partially seeded; refusing to reseed or "
+                "silently omit stores."
+            )
+        return LocalSQLiteEvidenceProvider(
+            EvidenceCollector(adapter_for_store_directory(store_dir))
+        )
+
+    from cerev.zetaris import ZetarisConfig, adapters_from_environment
+
+    config = ZetarisConfig.from_environment(values)
+    adapters = adapters_from_environment(config, values)
+    return ZetarisEvidenceProvider(EvidenceCollector(adapters))
 
 
 def _require_text(value: str, name: str) -> None:
