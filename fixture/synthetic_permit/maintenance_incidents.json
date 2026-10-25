@@ -1,0 +1,111 @@
+{
+  "source_system": "maintenance_incident_registry",
+  "dataset_id": "maintenance-incidents-client-a-march-2024",
+  "events": [
+    {
+      "source_record_id": "maintenance-event-a-2024-03-08",
+      "event_id": "event-a",
+      "event_kind": "maintenance",
+      "start_at": "2024-03-08T02:00:00Z",
+      "duration_minutes": 47,
+      "notice_record_id": "notice-event-a-2024-03-06",
+      "provenance": {
+        "source_system": "maintenance_incident_registry",
+        "source_record_id": "maintenance-event-a-2024-03-08",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": null
+      }
+    },
+    {
+      "source_record_id": "maintenance-event-b-2024-03-19",
+      "event_id": "event-b",
+      "event_kind": "maintenance",
+      "start_at": "2024-03-19T03:00:00Z",
+      "duration_minutes": 38,
+      "notice_record_id": "notice-event-b-2024-03-17",
+      "provenance": {
+        "source_system": "maintenance_incident_registry",
+        "source_record_id": "maintenance-event-b-2024-03-19",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": null
+      }
+    },
+    {
+      "source_record_id": "maintenance-event-c-2024-03-24",
+      "event_id": "event-c",
+      "event_kind": "maintenance",
+      "start_at": "2024-03-24T04:00:00Z",
+      "duration_minutes": 26,
+      "notice_record_id": "notice-event-c-2024-03-22",
+      "provenance": {
+        "source_system": "maintenance_incident_registry",
+        "source_record_id": "maintenance-event-c-2024-03-24",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": null
+      }
+    },
+    {
+      "source_record_id": "incident-event-d-2024-03-28",
+      "event_id": "event-d",
+      "event_kind": "incident",
+      "start_at": "2024-03-28T14:30:00Z",
+      "duration_minutes": 312,
+      "notice_record_id": null,
+      "provenance": {
+        "source_system": "maintenance_incident_registry",
+        "source_record_id": "incident-event-d-2024-03-28",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": null
+      }
+    }
+  ],
+  "notice_records": [
+    {
+      "source_record_id": "notice-event-a-2024-03-06",
+      "event_id": "event-a",
+      "notice_at": "2024-03-06T02:00:00Z",
+      "delivery_form": "written",
+      "provenance": {
+        "source_system": "maintenance_incident_registry",
+        "source_record_id": "notice-event-a-2024-03-06",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": null
+      }
+    },
+    {
+      "source_record_id": "notice-event-b-2024-03-17",
+      "event_id": "event-b",
+      "notice_at": "2024-03-17T03:00:00Z",
+      "delivery_form": "written",
+      "provenance": {
+        "source_system": "maintenance_incident_registry",
+        "source_record_id": "notice-event-b-2024-03-17",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": null
+      }
+    },
+    {
+      "source_record_id": "notice-event-c-2024-03-22",
+      "event_id": "event-c",
+      "notice_at": "2024-03-22T04:00:00Z",
+      "delivery_form": "written",
+      "provenance": {
+        "source_system": "maintenance_incident_registry",
+        "source_record_id": "notice-event-c-2024-03-22",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": null
+      }
+    }
+  ],
+  "source_notes": {
+    "notice_records": "The scenario supplies notice timestamps for A, B, and C. It does not specify the delivery form; no written-delivery status is inferred.",
+    "event_d": "No notice record was supplied for Event D."
+  }
+}

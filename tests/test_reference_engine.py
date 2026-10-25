@@ -232,6 +232,18 @@ def test_partial_point_intervals_are_rounded_down() -> None:
     assert result.credit_cents == 960_000
 
 
+def test_exact_0_1_percentage_point_shortfall_earns_one_interval() -> None:
+    incident = make_event(event_id="incident", event_kind="incident", duration_minutes=60)
+
+    result = calculate_reference(make_inputs((incident,), total_minutes=10_000))
+
+    assert result.availability_percent == Decimal("99.4")
+    assert result.shortfall_percentage_points == Decimal("0.1")
+    assert result.complete_credit_intervals == 1
+    assert result.credit_per_interval_cents == 480_000
+    assert result.credit_cents == 480_000
+
+
 @pytest.mark.parametrize(
     ("downtime", "expected_intervals"),
     [(69, 1), (70, 2), (71, 2)],

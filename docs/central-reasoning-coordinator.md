@@ -32,6 +32,12 @@ An Operator revision is a new append-only Phase 9.1 proposal revision. Publishin
 
 ## Current limitations
 
+The Challenger is a role-separated participant, not an independently isolated or independently
+trustworthy process. Conflict analysis covers a finite set of explicit rules; it is not a
+universal contradiction detector. Replaying an existing receipt uses retained evidence and is
+deterministic, while fresh issuance can differ when current injected or external role outputs
+change.
+
 - Role protocols are synchronous. Provider adapters must enforce their own network deadlines; Python cannot safely interrupt an arbitrary synchronous provider call. A raised `TimeoutError` is represented as a provider failure.
 - The local Phase 8 provider recollects all five separate SQLite stores for a scoped lookup, then filters the resulting package. It remains simulation data and makes no global snapshot-consistency claim.
 - No production implementation exists for any reasoning role or proposal revision publisher.
