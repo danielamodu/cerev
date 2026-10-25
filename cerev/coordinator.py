@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import hashlib
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Protocol
+from typing import Any, Protocol
 
 from cerev.conflicts import analyze_evidence
 from cerev.evidence import EvidencePackage, EvidenceRecord
@@ -139,6 +140,30 @@ class ProposalRevisionPublisher(Protocol):
     def publish(self, workflow_id: str, proposal_id: str, action: ProposedAction) -> None: ...
 
 
+class OperationJournal(Protocol):
+    """Durable idempotency boundary optionally supplied by Phase 10 runtime."""
+
+    def invoke(
+        self,
+        operation_id: str,
+        operation_kind: str,
+        input_value: object,
+        call: Callable[[], Any],
+        *,
+        state: str,
+    ) -> Any: ...
+
+    def completed_operations(
+        self, prefix: str, operation_kind: str
+    ) -> tuple[tuple[str, Any], ...]: ...
+
+    def append_trace_event(self, event: TraceEvent) -> None: ...
+
+    def record_transition(
+        self, before: OrchestrationWorkflow, after: OrchestrationWorkflow, details: object
+    ) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ToolResult:
     name: ToolName
@@ -182,11 +207,19 @@ class ScopedEvidenceAccess:
         workflow_id: str,
         proposal_id: str,
         request_ids: tuple[str, ...],
+        *,
+        operation_journal: OperationJournal | None = None,
+        operation_prefix: str = "",
+        state: str = WorkflowState.INVESTIGATING.value,
     ) -> None:
         self._provider = provider
         self._workflow_id = workflow_id
         self._proposal_id = proposal_id
         self._request_ids = frozenset(request_ids)
+        self._journal = operation_journal
+        self._operation_prefix = operation_prefix
+        self._state = state
+        self._lookup_index = 0
         self.results: list[EvidenceProviderResult] = []
         self.attempted_lookups: list[EvidenceLookup] = []
 
@@ -198,20 +231,53 @@ class ScopedEvidenceAccess:
                 "Evidence lookup does not answer a pending investigation request."
             )
         self.attempted_lookups.append(lookup)
+        operation_id = f"{self._operation_prefix}/evidence/{self._lookup_index:04d}"
+        self._lookup_index += 1
+
+        def retrieve() -> EvidenceProviderResult:
+            try:
+                result = self._provider.retrieve(lookup)
+            except TimeoutError as error:
+                raise CoordinatorError("Evidence provider timed out.") from error
+            except Exception as error:
+                raise CoordinatorError(
+                    f"Evidence provider failed: {type(error).__name__}."
+                ) from error
+            if result.lookup != lookup:
+                raise CoordinatorError(
+                    "Evidence provider returned a result for a different lookup."
+                )
+            if not result.complete:
+                raise CoordinatorError(
+                    "Evidence provider returned an incomplete collection; "
+                    "it cannot enter reasoning."
+                )
+            return result
+
         try:
-            result = self._provider.retrieve(lookup)
-        except TimeoutError as error:
-            raise CoordinatorError("Evidence provider timed out.") from error
-        except Exception as error:
-            raise CoordinatorError(f"Evidence provider failed: {type(error).__name__}.") from error
-        if result.lookup != lookup:
-            raise CoordinatorError("Evidence provider returned a result for a different lookup.")
-        if not result.complete:
-            raise CoordinatorError(
-                "Evidence provider returned an incomplete collection; it cannot enter reasoning."
+            result = (
+                retrieve()
+                if self._journal is None
+                else self._journal.invoke(
+                    operation_id,
+                    "evidence_lookup",
+                    lookup,
+                    retrieve,
+                    state=self._state,
+                )
             )
+        except Exception:
+            raise
         self.results.append(result)
         return result
+
+    def restore_completed_lookups(self) -> None:
+        if self._journal is None:
+            return
+        prefix = f"{self._operation_prefix}/evidence/"
+        completed = self._journal.completed_operations(prefix, "evidence_lookup")
+        if completed:
+            self.results[:] = [result for _, result in completed]
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,6 +380,7 @@ class ReasoningCoordinator:
         *,
         max_investigation_cycles: int = 4,
         max_revisions: int = 2,
+        operation_journal: OperationJournal | None = None,
     ) -> CoordinatedRun:
         workflow = OrchestrationWorkflow(
             identity,
@@ -323,18 +390,29 @@ class ReasoningCoordinator:
             max_investigation_cycles=max_investigation_cycles,
         )
         case = CaseContext(identity.workflow_id, proposal.proposal_id, (proposal,))
-        trace = WorkflowTrace().append(
+        trace = _append_trace(
+            WorkflowTrace(),
             "PROPOSE",
             AgentRole.OPERATOR.value,
             (proposal.proposal_id,),
             {"action_id": proposal.action.action_id},
+            operation_journal,
         )
         feedback: VerificationFeedback | None = None
         pending = initial_requests
         last_package: EvidencePackage | None = None
         active_access: ScopedEvidenceAccess | None = None
+
+        def transition(target: WorkflowState, **details: object) -> OrchestrationWorkflow:
+            nonlocal workflow
+            previous = workflow
+            workflow = previous.transition(target, **details)
+            if operation_journal is not None:
+                operation_journal.record_transition(previous, workflow, details)
+            return workflow
+
         try:
-            workflow = workflow.transition(
+            workflow = transition(
                 WorkflowState.INVESTIGATING, evidence_request=pending[0] if pending else None
             )
             while workflow.investigation_cycles <= workflow.max_investigation_cycles:
@@ -348,9 +426,13 @@ class ReasoningCoordinator:
                     identity.workflow_id,
                     proposal.proposal_id,
                     tuple(request.request_id for request in pending),
+                    operation_journal=operation_journal,
+                    operation_prefix=f"cycle-{workflow.investigation_cycles}/investigator",
+                    state=workflow.state.value,
                 )
                 active_access = access
-                trace = trace.append(
+                trace = _append_trace(
+                    trace,
                     "INVESTIGATE",
                     AgentRole.INVESTIGATOR.value,
                     tuple(r.request_id for r in pending),
@@ -366,10 +448,19 @@ class ReasoningCoordinator:
                             for request in pending
                         ),
                     },
+                    operation_journal,
                 )
-                turn = self.investigator.investigate(
-                    InvestigatorInput(proposal, case, pending, feedback), access
+                investigator_input = InvestigatorInput(proposal, case, pending, feedback)
+                investigator_operation = f"cycle-{workflow.investigation_cycles}/investigator"
+                turn = _invoke_operation(
+                    operation_journal,
+                    investigator_operation,
+                    "investigator",
+                    investigator_input,
+                    lambda: self.investigator.investigate(investigator_input, access),
+                    workflow.state.value,
                 )
+                access.restore_completed_lookups()
                 if not isinstance(turn, InvestigatorTurn):
                     raise CoordinatorError("Investigator returned an invalid response contract.")
                 if not access.results:
@@ -381,11 +472,13 @@ class ReasoningCoordinator:
                     raise CoordinatorError("Complete evidence retrieval did not include a package.")
                 last_package = packages[-1]
                 assert last_package is not None
-                trace = trace.append(
+                trace = _append_trace(
+                    trace,
                     "RETRIEVAL_RESULTS",
                     "EVIDENCE_PROVIDER",
                     tuple(result.metadata.provider_id for result in access.results),
                     tuple(_retrieval_metadata(result) for result in access.results),
+                    operation_journal,
                 )
                 _validate_agent_artifacts(
                     turn, identity.workflow_id, proposal.proposal_id, access.results
@@ -421,7 +514,8 @@ class ReasoningCoordinator:
                 )
                 binding = bind_proposal_to_package(proposal, last_package)
                 case = case.evolve(package_bindings=(binding,))
-                trace = trace.append(
+                trace = _append_trace(
+                    trace,
                     "INVESTIGATOR_FINDINGS",
                     AgentRole.INVESTIGATOR.value,
                     tuple(c.claim_id for c in turn.claims),
@@ -430,8 +524,9 @@ class ReasoningCoordinator:
                         "hypothesis_ids": tuple(h.hypothesis_id for h in turn.hypotheses),
                         "uncertainties": turn.uncertainties,
                     },
+                    operation_journal,
                 )
-                workflow = workflow.transition(WorkflowState.CHALLENGING)
+                workflow = transition(WorkflowState.CHALLENGING)
                 cited_records = tuple(
                     {
                         citation.evidence_id: citation.validate_against(last_package)
@@ -439,15 +534,21 @@ class ReasoningCoordinator:
                         for citation in claim.citations
                     }.values()
                 )
-                challenge = self.challenger.challenge(
-                    ChallengerInput(
-                        proposal,
-                        case.claims,
-                        case.hypotheses,
-                        cited_records,
-                        case.objections,
-                        feedback,
-                    )
+                challenger_input = ChallengerInput(
+                    proposal,
+                    case.claims,
+                    case.hypotheses,
+                    cited_records,
+                    case.objections,
+                    feedback,
+                )
+                challenge = _invoke_operation(
+                    operation_journal,
+                    f"cycle-{workflow.investigation_cycles}/challenger",
+                    "challenger",
+                    challenger_input,
+                    lambda: self.challenger.challenge(challenger_input),
+                    workflow.state.value,
                 )
                 if not isinstance(challenge, ChallengerTurn):
                     raise CoordinatorError("Challenger returned an invalid response contract.")
@@ -461,7 +562,8 @@ class ReasoningCoordinator:
                     for citation in objection.citations:
                         citation.validate_against(last_package)
                 case = case.evolve(objections=challenge.objections)
-                trace = trace.append(
+                trace = _append_trace(
+                    trace,
                     "CHALLENGE",
                     AgentRole.CHALLENGER.value,
                     tuple(o.objection_id for o in challenge.objections),
@@ -469,11 +571,18 @@ class ReasoningCoordinator:
                         "objection_ids": tuple(o.objection_id for o in challenge.objections),
                         "targeted_request_count": len(challenge.evidence_requests),
                     },
+                    operation_journal,
                 )
-                workflow = workflow.transition(WorkflowState.REASONING)
+                workflow = transition(WorkflowState.REASONING)
                 tools = ReadOnlyTools(last_package)
-                decision = self.operator.decide(
-                    OperatorInput("REASON", proposal, case, last_package, feedback)
+                operator_input = OperatorInput("REASON", proposal, case, last_package, feedback)
+                decision = _invoke_operation(
+                    operation_journal,
+                    f"cycle-{workflow.investigation_cycles}/operator-reason",
+                    "operator",
+                    operator_input,
+                    lambda: self.operator.decide(operator_input),
+                    workflow.state.value,
                 )
                 if not isinstance(decision, OperatorDecision):
                     raise CoordinatorError("Operator returned an invalid response contract.")
@@ -484,23 +593,37 @@ class ReasoningCoordinator:
                     raise CoordinatorError(
                         "Only the Operator can resolve objections in this workflow."
                     )
-                results = tools.run(decision.tools)
+                results = _invoke_operation(
+                    operation_journal,
+                    f"cycle-{workflow.investigation_cycles}/tools",
+                    "deterministic_tools",
+                    {"package": last_package, "requests": decision.tools},
+                    lambda: tools.run(decision.tools),
+                    workflow.state.value,
+                )
                 if results:
-                    decision = self.operator.decide(
-                        OperatorInput(
-                            "REASON_WITH_TOOL_RESULTS",
-                            proposal,
-                            case,
-                            last_package,
-                            feedback,
-                            results,
-                        )
+                    tool_review_input = OperatorInput(
+                        "REASON_WITH_TOOL_RESULTS",
+                        proposal,
+                        case,
+                        last_package,
+                        feedback,
+                        results,
+                    )
+                    decision = _invoke_operation(
+                        operation_journal,
+                        f"cycle-{workflow.investigation_cycles}/operator-tool-review",
+                        "operator_tool_review",
+                        tool_review_input,
+                        lambda: self.operator.decide(tool_review_input),
+                        workflow.state.value,
                     )
                     if not isinstance(decision, OperatorDecision):
                         raise CoordinatorError(
                             "Operator returned an invalid response to deterministic tools."
                         )
-                trace = trace.append(
+                trace = _append_trace(
+                    trace,
                     "REASON",
                     AgentRole.OPERATOR.value,
                     tuple(r.name.value for r in results),
@@ -508,10 +631,11 @@ class ReasoningCoordinator:
                         "tool_result_hashes": tuple(r.result_sha256 for r in results),
                         "resolution_count": len(decision.resolutions),
                     },
+                    operation_journal,
                 )
                 case = case.evolve(resolutions=decision.resolutions)
                 if decision.escalate_reason:
-                    workflow = workflow.transition(WorkflowState.ESCALATED)
+                    workflow = transition(WorkflowState.ESCALATED)
                     return _outcome(
                         identity.workflow_id,
                         WorkflowStatus.ESCALATED,
@@ -522,7 +646,7 @@ class ReasoningCoordinator:
                     )
                 if decision.revision is not None:
                     if self.revision_publisher is None:
-                        workflow = workflow.transition(WorkflowState.ESCALATED)
+                        workflow = transition(WorkflowState.ESCALATED)
                         return _outcome(
                             identity.workflow_id,
                             WorkflowStatus.ESCALATED,
@@ -531,21 +655,45 @@ class ReasoningCoordinator:
                             trace,
                             "No source-owned proposal revision publisher is configured.",
                         )
-                    next_proposal = proposal.revise(
-                        proposal_id=f"{proposal.proposal_id}-r{proposal.revision_number + 1}",
-                        action=decision.revision,
-                        reason=decision.revision_reason or "Operator revision",
-                        submitted_by=AgentRole.OPERATOR,
-                        created_at=datetime.now(UTC),
+                    revision_reason = decision.revision_reason or "Operator revision"
+                    next_proposal = _invoke_operation(
+                        operation_journal,
+                        f"cycle-{workflow.investigation_cycles}/proposal-revision",
+                        "proposal_revision",
+                        {
+                            "proposal": proposal,
+                            "action": decision.revision,
+                            "reason": revision_reason,
+                        },
+                        lambda: proposal.revise(
+                            proposal_id=f"{proposal.proposal_id}-r{proposal.revision_number + 1}",
+                            action=decision.revision,
+                            reason=revision_reason,
+                            submitted_by=AgentRole.OPERATOR,
+                            created_at=datetime.now(UTC),
+                        ),
+                        workflow.state.value,
                     )
-                    self.revision_publisher.publish(
-                        identity.workflow_id, next_proposal.proposal_id, next_proposal.action
+                    revision_input = {
+                        "workflow_id": identity.workflow_id,
+                        "proposal_id": next_proposal.proposal_id,
+                        "action": next_proposal.action,
+                    }
+                    _invoke_operation(
+                        operation_journal,
+                        f"cycle-{workflow.investigation_cycles}/publish-revision",
+                        "proposal_revision_publish",
+                        revision_input,
+                        lambda: self.revision_publisher.publish(
+                            identity.workflow_id, next_proposal.proposal_id, next_proposal.action
+                        ),
+                        workflow.state.value,
                     )
                     proposal = next_proposal
                     case = case.evolve(
                         current_proposal_id=proposal.proposal_id, proposals=(proposal,)
                     )
-                    workflow = workflow.transition(WorkflowState.INVESTIGATING, revision=proposal)
+                    workflow = transition(WorkflowState.INVESTIGATING, revision=proposal)
                     pending = decision.requests
                     if not pending:
                         pending = (
@@ -563,21 +711,23 @@ class ReasoningCoordinator:
                     continue
                 if decision.requests or challenge.evidence_requests:
                     pending = decision.requests + challenge.evidence_requests
-                    workflow = workflow.transition(
-                        WorkflowState.INVESTIGATING, evidence_request=pending[0]
-                    )
+                    workflow = transition(WorkflowState.INVESTIGATING, evidence_request=pending[0])
                     feedback = None
                     continue
                 if decision.verify:
-                    workflow = workflow.transition(WorkflowState.VERIFYING, package_binding=binding)
-                    report = analyze_evidence(last_package)
-                    feedback = VerificationFeedback.from_conflict_report(
-                        workflow_id=identity.workflow_id,
-                        proposal_id=proposal.proposal_id,
-                        evidence_package_id=last_package.package_id,
-                        report=report,
+                    workflow = transition(WorkflowState.VERIFYING, package_binding=binding)
+                    report, feedback = _invoke_operation(
+                        operation_journal,
+                        f"cycle-{workflow.investigation_cycles}/verification",
+                        "deterministic_verification",
+                        last_package,
+                        lambda: _verify_package(
+                            identity.workflow_id, proposal.proposal_id, last_package
+                        ),
+                        workflow.state.value,
                     )
-                    trace = trace.append(
+                    trace = _append_trace(
+                        trace,
                         "VERIFY",
                         "DETERMINISTIC_VERIFIER",
                         (report.report_id,),
@@ -585,16 +735,23 @@ class ReasoningCoordinator:
                             "finding_ids": tuple(f.finding_id for f in feedback.findings),
                             "conflict_count": len(report.conflicts),
                         },
+                        operation_journal,
                     )
                     case = case.evolve(verification_feedback=(feedback,))
-                    verifier_choice = self.operator.decide(
-                        OperatorInput(
-                            "VERIFICATION_FEEDBACK",
-                            proposal,
-                            case,
-                            last_package,
-                            feedback,
-                        )
+                    verifier_input = OperatorInput(
+                        "VERIFICATION_FEEDBACK",
+                        proposal,
+                        case,
+                        last_package,
+                        feedback,
+                    )
+                    verifier_choice = _invoke_operation(
+                        operation_journal,
+                        f"cycle-{workflow.investigation_cycles}/operator-verification",
+                        "operator_verification",
+                        verifier_input,
+                        lambda: self.operator.decide(verifier_input),
+                        workflow.state.value,
                     )
                     if not isinstance(verifier_choice, OperatorDecision):
                         raise CoordinatorError(
@@ -606,14 +763,14 @@ class ReasoningCoordinator:
                     ):
                         pending = verifier_choice.requests
                         case = case.evolve(evidence_requests=pending)
-                        workflow = workflow.transition(
+                        workflow = transition(
                             WorkflowState.INVESTIGATING,
                             evidence_request=pending[0],
                             verification_feedback=feedback,
                         )
                         continue
                     if verifier_choice.requests:
-                        workflow = workflow.transition(WorkflowState.ESCALATED)
+                        workflow = transition(WorkflowState.ESCALATED)
                         return _outcome(
                             identity.workflow_id,
                             WorkflowStatus.ESCALATED,
@@ -625,7 +782,7 @@ class ReasoningCoordinator:
                     # The deterministic policy gate determines the disposition even when
                     # verifier feedback remains; the Operator cannot override its result.
                     if not verifier_choice.finalize:
-                        workflow = workflow.transition(WorkflowState.ESCALATED)
+                        workflow = transition(WorkflowState.ESCALATED)
                         return _outcome(
                             identity.workflow_id,
                             WorkflowStatus.ESCALATED,
@@ -640,7 +797,7 @@ class ReasoningCoordinator:
                         if r.outcome in {ResolutionOutcome.ACCEPTED, ResolutionOutcome.REVISED}
                     }
                     if unresolved:
-                        workflow = workflow.transition(WorkflowState.ESCALATED)
+                        workflow = transition(WorkflowState.ESCALATED)
                         return _outcome(
                             identity.workflow_id,
                             WorkflowStatus.ESCALATED,
@@ -649,13 +806,22 @@ class ReasoningCoordinator:
                             trace,
                             "Material objections remain unresolved.",
                         )
-                    evaluation = evaluate_and_create_receipt(last_package)
-                    workflow = workflow.transition(WorkflowState.DECIDED, evaluation=evaluation)
-                    trace = trace.append(
+                    evaluation = _invoke_operation(
+                        operation_journal,
+                        f"cycle-{workflow.investigation_cycles}/policy-evaluation",
+                        "deterministic_policy_evaluation",
+                        last_package,
+                        lambda: evaluate_and_create_receipt(last_package),
+                        workflow.state.value,
+                    )
+                    workflow = transition(WorkflowState.DECIDED, evaluation=evaluation)
+                    trace = _append_trace(
+                        trace,
                         "DECIDE",
                         "DETERMINISTIC_POLICY_GATE",
                         (evaluation.receipt.receipt_id,),
                         {"disposition": evaluation.policy_decision.disposition.value},
+                        operation_journal,
                     )
                     return _outcome(
                         identity.workflow_id,
@@ -666,7 +832,7 @@ class ReasoningCoordinator:
                         "Deterministic policy evaluation completed.",
                         evaluation=evaluation,
                     )
-                workflow = workflow.transition(WorkflowState.ESCALATED)
+                workflow = transition(WorkflowState.ESCALATED)
                 return _outcome(
                     identity.workflow_id,
                     WorkflowStatus.ESCALATED,
@@ -682,7 +848,7 @@ class ReasoningCoordinator:
                 WorkflowState.ESCALATED,
             }:
                 try:
-                    workflow = workflow.transition(WorkflowState.FAILED)
+                    workflow = transition(WorkflowState.FAILED)
                 except Exception:
                     pass
             kind = (
@@ -690,7 +856,8 @@ class ReasoningCoordinator:
                 if isinstance(error, (TimeoutError,)) or "provider" in str(error).lower()
                 else WorkflowFailureKind.VALIDATION_FAILURE
             )
-            trace = trace.append(
+            trace = _append_trace(
+                trace,
                 "FAILURE",
                 "COORDINATOR",
                 tuple(
@@ -707,6 +874,7 @@ class ReasoningCoordinator:
                     "error_type": type(error).__name__,
                     "error_code": type(error).__name__.upper(),
                 },
+                operation_journal,
             )
             if workflow.state == WorkflowState.ESCALATED:
                 return _outcome(
@@ -737,7 +905,7 @@ class ReasoningCoordinator:
                 detail=str(error)[:500],
             )
             return CoordinatedRun(result, case, workflow, trace)
-        workflow = workflow.transition(WorkflowState.ESCALATED)
+        workflow = transition(WorkflowState.ESCALATED)
         return _outcome(
             identity.workflow_id,
             WorkflowStatus.ESCALATED,
@@ -797,6 +965,54 @@ def _validate_agent_artifacts(
             or not set(response.hypothesis_ids) <= hypotheses
         ):
             raise CoordinatorError("Investigator response references an unreturned finding.")
+
+
+def _invoke_operation(
+    journal: OperationJournal | None,
+    operation_id: str,
+    operation_kind: str,
+    input_value: object,
+    call: Callable[[], Any],
+    state: str,
+) -> Any:
+    return (
+        call()
+        if journal is None
+        else journal.invoke(
+            operation_id,
+            operation_kind,
+            input_value,
+            call,
+            state=state,
+        )
+    )
+
+
+def _append_trace(
+    trace: WorkflowTrace,
+    phase: str,
+    actor: str,
+    references: tuple[str, ...],
+    public_data: object,
+    journal: OperationJournal | None,
+) -> WorkflowTrace:
+    updated = trace.append(phase, actor, references, public_data)
+    if journal is not None:
+        journal.append_trace_event(updated.events[-1])
+    return updated
+
+
+def _verify_package(
+    workflow_id: str, proposal_id: str, package: EvidencePackage
+) -> tuple[object, VerificationFeedback]:
+    report = analyze_evidence(package)
+    feedback = VerificationFeedback.from_conflict_report(
+        workflow_id=workflow_id,
+        proposal_id=proposal_id,
+        evidence_package_id=package.package_id,
+        report=report,
+    )
+    return report, feedback
 
 
 def _retrieval_metadata(result: EvidenceProviderResult) -> dict[str, object]:

@@ -12,6 +12,8 @@ The repository has completed **Phase 0: Repository Foundation**, **Phase 1: Cano
 
 Phase 9.1 adds immutable contracts for the Operator, Investigator, and Challenger workflow. Phase 9.2 adds a bounded, injectable coordinator that runs those roles through iterative investigation, challenge, shared-case updates, deterministic verification feedback, proposal revision boundaries, and escalation. The roles are central to the reasoning architecture: the Operator steers the case, the Investigator retrieves and interprets evidence, and the Challenger scrutinizes claims and requests targeted follow-up. The tests use deterministic doubles; no production agent or model provider is included. The existing deterministic pipeline independently checks final evidence and remains the sole source of policy dispositions, permits, and execution authorization.
 
+Phase 10 adds a single-host SQLite durability layer around that existing coordinator. It journals stable operation intents and outcomes, hash-links append-only events, checkpoints progress, and uses a per-workflow lease. Reopening a completed workflow returns its retained result; replay reuses completed operation outputs. An interrupted operation with an unknown outcome escalates instead of being repeated. Workflow persistence does not issue permits or authorize execution. Schema version 1 rejects unsupported databases and has no upgrade migration yet.
+
 Phase 6 permits use Ed25519 signatures over canonical, action-specific claims and require successful receipt/evidence replay. Phase 7 routes simulated credit operations through a protected adapter, persists nonce and execution state in SQLite, and returns the stored result for exact duplicates. Phase 8 adds five separately addressable local SQLite source stores with per-source retrieval timestamps, revisions, provenance, and explicit partial-failure reporting. These stores are seeded simulations, not production systems. The execution target remains local and simulated; this is not real payment execution. Production key custody and revocation remain out of scope. Receipts and signatures do not authenticate the truthfulness of upstream sources. No external source, Zetaris, Nemotron, PostgreSQL, or LLM integration is included.
 
 ## Development
@@ -49,6 +51,7 @@ The runtime dependency is `cryptography` for Ed25519; the package does not read 
 - `cerev/orchestration.py`: Phase 9.1 role contracts, provenance-bound citations, evolving case context, proposal bindings, and bounded state transitions; no agent behavior or provider integration.
 - `cerev/evidence_provider.py`: scoped, bounded read-only evidence-provider protocol and Phase 8 SQLite simulation adapter.
 - `cerev/coordinator.py`: Phase 9.2 multi-role coordination, deterministic read-only tools, verification feedback loop, fail-closed outcomes, and hash-linked run trace. No LLM, external provider, permit, or execution capability is exposed.
+- `cerev/durable_runtime.py`: Phase 10 SQLite workflow, operation, checkpoint, and append-only event persistence integrated with the coordinator; single-host leases and ambiguity-aware recovery.
 - `cerev/conflicts.py`: deterministic cross-source findings linked to evidence.
 - `cerev/policy.py`: independent `PERMIT`/`BLOCK`/`ABSTAIN` policy evaluation.
 - `cerev/receipt.py`: canonical immutable decision receipts and local JSON storage.
@@ -61,3 +64,5 @@ The runtime dependency is `cryptography` for Ed25519; the package does not read 
 The `fixture/` directory contains the Phase 1 datasets and guide. The Phase 8 adapter API and simulation limitations are documented in [docs/independent-evidence-sources.md](docs/independent-evidence-sources.md). See [docs/conflict-detection-and-policy.md](docs/conflict-detection-and-policy.md) for Phase 4 behavior, [docs/decision-receipts-and-replay.md](docs/decision-receipts-and-replay.md) for Phase 5, [docs/execution-permits.md](docs/execution-permits.md) for Phase 6, and [docs/protected-execution.md](docs/protected-execution.md) for Phase 7 guarantees and limitations.
 
 Phase 9.1 contract design and state transitions are described in [docs/orchestration-contracts.md](docs/orchestration-contracts.md). Phase 9.2 coordination, tools, revision boundaries, trace, and limitations are described in [docs/central-reasoning-coordinator.md](docs/central-reasoning-coordinator.md).
+
+Phase 10 persistence, checkpointing, concurrency, recovery, trace integrity, and limitations are described in [docs/durable-orchestration-runtime.md](docs/durable-orchestration-runtime.md).
