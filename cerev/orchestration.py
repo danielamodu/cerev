@@ -7,6 +7,7 @@ source-backed ``EvidenceRecord`` objects.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -23,7 +24,7 @@ from cerev.policy import (
     ProposedAction,
     proposed_action_from_package,
 )
-from cerev.receipt import EvaluationWithReceipt
+from cerev.receipt import EvaluationWithReceipt, canonical_json_bytes
 
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
@@ -196,6 +197,7 @@ class ProposalEvidenceBinding:
     source_record_id: str
     source_version: str | None
     content_sha256: str
+    package_snapshot_sha256: str
 
     def __post_init__(self) -> None:
         for name in (
@@ -212,6 +214,10 @@ class ProposalEvidenceBinding:
             raise ContractValidationError("revision_number must be a non-negative integer.")
         if not _SHA256_PATTERN.fullmatch(self.content_sha256):
             raise ContractValidationError("content_sha256 must be 64 lowercase hexadecimal chars.")
+        if not _SHA256_PATTERN.fullmatch(self.package_snapshot_sha256):
+            raise ContractValidationError(
+                "package_snapshot_sha256 must be 64 lowercase hexadecimal chars."
+            )
         if self.source_version is not None:
             _require_text(self.source_version, "source_version")
 
@@ -243,6 +249,7 @@ def bind_proposal_to_package(
         source_record_id=record.source_record_id,
         source_version=record.version_id,
         content_sha256=record.content_sha256,
+        package_snapshot_sha256=hashlib.sha256(canonical_json_bytes(package.to_dict())).hexdigest(),
     )
 
 
@@ -658,15 +665,14 @@ class CaseContext:
             "verification_feedback",
         ):
             _require_tuple(getattr(self, name), name)
-        bound_proposal_ids: set[str] = set()
+        bound_snapshots: set[tuple[str, str]] = set()
         for binding in self.package_bindings:
             if binding.workflow_id != self.workflow_id or binding.proposal_id not in proposals:
                 raise ContractValidationError("Package binding must reference a workflow proposal.")
-            if binding.proposal_id in bound_proposal_ids:
-                raise ContractValidationError(
-                    "A proposal revision can have only one package binding."
-                )
-            bound_proposal_ids.add(binding.proposal_id)
+            binding_key = (binding.proposal_id, binding.package_snapshot_sha256)
+            if binding_key in bound_snapshots:
+                raise ContractValidationError("Duplicate proposal package snapshot binding.")
+            bound_snapshots.add(binding_key)
         claims = {claim.claim_id: claim for claim in self.claims}
         if len(claims) != len(self.claims):
             raise ContractValidationError("Claim IDs must be unique in the case context.")
@@ -1088,6 +1094,7 @@ def _evaluation_matches_binding(
     )
     return (
         contents.get("evidence_package_id") == binding.evidence_package_id
+        and contents.get("evidence_snapshot_sha256") == binding.package_snapshot_sha256
         and action == {**action, **expected_fields}
         and matching_evidence is not None
         and matching_evidence.get("source_id") == binding.source_id
