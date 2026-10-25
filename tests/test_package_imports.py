@@ -18,6 +18,7 @@ def test_planned_modules_import() -> None:
         "nonce",
         "retrieval_direct",
         "adapter",
+        "orchestration",
     )
 
     for module in modules:
