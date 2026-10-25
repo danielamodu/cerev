@@ -16,7 +16,9 @@ Phase 10 adds a single-host SQLite durability layer around that existing coordin
 
 Phase 11 adds append-only, typed shared reasoning memory to the same SQLite database. Claims, competing hypotheses, objections, proposed resolutions, evidence references, requests, proposals, and deterministic findings are linked by typed relationships and scoped to a workflow. The coordinator supplies role-scoped memory views to all three reasoning roles and persists findings between cycles, so follow-up investigation can inspect prior claims and objections. Memory batches and lifecycle changes are committed with their history event and checkpoint in one transaction; schema version 1 databases migrate to version 2. This is local single-host storage, not Meterless World Model or a multi-agent service integration. Memory informs reasoning but does not change evidence validation, policy, permit, or execution authority.
 
-Phase 6 permits use Ed25519 signatures over canonical, action-specific claims and require successful receipt/evidence replay. Phase 7 routes simulated credit operations through a protected adapter, persists nonce and execution state in SQLite, and returns the stored result for exact duplicates. Phase 8 adds five separately addressable local SQLite source stores with per-source retrieval timestamps, revisions, provenance, and explicit partial-failure reporting. These stores are seeded simulations, not production systems. The execution target remains local and simulated; this is not real payment execution. Production key custody and revocation remain out of scope. Receipts and signatures do not authenticate the truthfulness of upstream sources. No external source, Zetaris, Nemotron, PostgreSQL, or LLM integration is included.
+Phase 12 adds a read-only Zetaris UI-proxy client and five logical source adapters that feed the existing `EvidenceCollector` and canonical evidence pipeline. Sample and Zetaris modes are selected explicitly; live failures never fall back to local data. The adapter and collector paths are mock tested, and the sample path remains covered. Live authentication, response shape, registered datasets, and cross-source queries have **not** been verified: no cluster endpoint, organization ID, API key, response mapping, or canonical registered relations are configured in this checkout. This is not yet a live Zetaris integration proof.
+
+Phase 6 permits use Ed25519 signatures over canonical, action-specific claims and require successful receipt/evidence replay. Phase 7 routes simulated credit operations through a protected adapter, persists nonce and execution state in SQLite, and returns the stored result for exact duplicates. Phase 8 adds five separately addressable local SQLite source stores with per-source retrieval timestamps, revisions, provenance, and explicit partial-failure reporting. These stores are seeded simulations, not production systems. Phase 12's Zetaris adapter is implemented but has not been live verified. The execution target remains local and simulated; this is not real payment execution. Production key custody and revocation remain out of scope. Receipts and signatures do not authenticate the truthfulness of upstream sources. No live external evidence source, Nemotron, PostgreSQL, or LLM integration is verified.
 
 ## Development
 
@@ -43,15 +45,16 @@ ruff format --check .
 
 Run the local protected-execution demonstration with `cerev-protected-demo` or `python -m cerev.demo`.
 
-The runtime dependency is `cryptography` for Ed25519; the package does not read environment variables. Never put credentials or private keys in the repository.
+The runtime dependency is `cryptography` for Ed25519. The evidence-provider factory reads explicit environment variables but does not parse `.env` files; use [`.env.example`](.env.example) as a local configuration reference. Never put credentials or private keys in the repository.
 
 ## Module map
 
 - `cerev/reference.py`: deterministic Contract V4 SLA reference calculation.
 - `cerev/evidence.py`: source records, timestamp semantics, provenance, and evidence packages.
 - `cerev/source_adapters.py`: independent local source stores, retrieval metadata, structured failures, and fail-closed collection.
+- `cerev/zetaris.py`: read-only Zetaris UI-proxy HTTP client and five canonical logical source adapters; response mapping must be confirmed against a live cluster.
 - `cerev/orchestration.py`: Phase 9.1 role contracts, provenance-bound citations, evolving case context, proposal bindings, and bounded state transitions; no agent behavior or provider integration.
-- `cerev/evidence_provider.py`: scoped, bounded read-only evidence-provider protocol and Phase 8 SQLite simulation adapter.
+- `cerev/evidence_provider.py`: scoped, bounded read-only provider protocol, explicit SAMPLE/Zetaris mode selection, and no-fallback provider wiring.
 - `cerev/coordinator.py`: Phase 9.2 multi-role coordination, deterministic read-only tools, verification feedback loop, fail-closed outcomes, and hash-linked run trace. No LLM, external provider, permit, or execution capability is exposed.
 - `cerev/durable_runtime.py`: Phase 10–11 SQLite workflow, operation, checkpoint, append-only event, and shared-memory persistence integrated with the coordinator; schema migration, single-host leases, and ambiguity-aware recovery.
 - `cerev/memory.py`: typed case-memory records, relationships, bounded queries, summaries, and role-scoped read/write capabilities.
@@ -71,3 +74,5 @@ Phase 9.1 contract design and state transitions are described in [docs/orchestra
 Phase 10 persistence, checkpointing, concurrency, recovery, trace integrity, and limitations are described in [docs/durable-orchestration-runtime.md](docs/durable-orchestration-runtime.md).
 
 Phase 11 memory objects, relationship semantics, role access, coordinator feedback, atomic persistence, migration, and limitations are described in [docs/shared-reasoning-memory.md](docs/shared-reasoning-memory.md).
+
+Phase 12 Zetaris request contract, relation mapping, source normalization, explicit modes, mock verification, live blockers, and limitations are described in [docs/zetaris-integration.md](docs/zetaris-integration.md).
