@@ -19,6 +19,7 @@ from typing import Any, Protocol
 from cerev.conflicts import analyze_evidence
 from cerev.evidence import EvidencePackage, EvidenceRecord
 from cerev.evidence_provider import EvidenceLookup, EvidenceProvider, EvidenceProviderResult
+from cerev.memory import CaseMemoryAccess, MemorySummary
 from cerev.orchestration import (
     ActionProposal,
     AgentRole,
@@ -72,6 +73,8 @@ class OperatorInput:
     package: EvidencePackage | None
     feedback: VerificationFeedback | None
     tool_results: tuple[ToolResult, ...] = ()
+    memory_summary: MemorySummary | None = None
+    memory_access: CaseMemoryAccess | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +83,8 @@ class InvestigatorInput:
     case: CaseContext
     requests: tuple[EvidenceRequest, ...]
     feedback: VerificationFeedback | None
+    memory_summary: MemorySummary | None = None
+    memory_access: CaseMemoryAccess | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +104,8 @@ class ChallengerInput:
     records: tuple[EvidenceRecord, ...]
     objections_seen: tuple[ChallengerObjection, ...]
     feedback: VerificationFeedback | None
+    memory_summary: MemorySummary | None = None
+    memory_access: CaseMemoryAccess | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +170,12 @@ class OperationJournal(Protocol):
         self, before: OrchestrationWorkflow, after: OrchestrationWorkflow, details: object
     ) -> None: ...
 
+    def memory_for(self, role: AgentRole) -> CaseMemoryAccess: ...
+
+    def memory_summary_for_operation(
+        self, operation_id: str, fallback: MemorySummary | None
+    ) -> MemorySummary | None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class ToolResult:
@@ -211,6 +224,7 @@ class ScopedEvidenceAccess:
         operation_journal: OperationJournal | None = None,
         operation_prefix: str = "",
         state: str = WorkflowState.INVESTIGATING.value,
+        memory: CaseMemoryAccess | None = None,
     ) -> None:
         self._provider = provider
         self._workflow_id = workflow_id
@@ -219,6 +233,7 @@ class ScopedEvidenceAccess:
         self._journal = operation_journal
         self._operation_prefix = operation_prefix
         self._state = state
+        self.memory = memory
         self._lookup_index = 0
         self.results: list[EvidenceProviderResult] = []
         self.attempted_lookups: list[EvidenceLookup] = []
@@ -402,6 +417,19 @@ class ReasoningCoordinator:
         pending = initial_requests
         last_package: EvidencePackage | None = None
         active_access: ScopedEvidenceAccess | None = None
+        investigator_memory = (
+            None
+            if operation_journal is None
+            else operation_journal.memory_for(AgentRole.INVESTIGATOR)
+        )
+        challenger_memory = (
+            None
+            if operation_journal is None
+            else operation_journal.memory_for(AgentRole.CHALLENGER)
+        )
+        operator_memory = (
+            None if operation_journal is None else operation_journal.memory_for(AgentRole.OPERATOR)
+        )
 
         def transition(target: WorkflowState, **details: object) -> OrchestrationWorkflow:
             nonlocal workflow
@@ -412,6 +440,9 @@ class ReasoningCoordinator:
             return workflow
 
         try:
+            if operator_memory is not None:
+                operator_memory.record_proposal(proposal)
+                operator_memory.record_requests(initial_requests)
             workflow = transition(
                 WorkflowState.INVESTIGATING, evidence_request=pending[0] if pending else None
             )
@@ -429,6 +460,7 @@ class ReasoningCoordinator:
                     operation_journal=operation_journal,
                     operation_prefix=f"cycle-{workflow.investigation_cycles}/investigator",
                     state=workflow.state.value,
+                    memory=investigator_memory,
                 )
                 active_access = access
                 trace = _append_trace(
@@ -450,8 +482,22 @@ class ReasoningCoordinator:
                     },
                     operation_journal,
                 )
-                investigator_input = InvestigatorInput(proposal, case, pending, feedback)
                 investigator_operation = f"cycle-{workflow.investigation_cycles}/investigator"
+                investigator_summary = (
+                    None if investigator_memory is None else investigator_memory.summary()
+                )
+                if operation_journal is not None:
+                    investigator_summary = operation_journal.memory_summary_for_operation(
+                        investigator_operation, investigator_summary
+                    )
+                investigator_input = InvestigatorInput(
+                    proposal,
+                    case,
+                    pending,
+                    feedback,
+                    investigator_summary,
+                    investigator_memory,
+                )
                 turn = _invoke_operation(
                     operation_journal,
                     investigator_operation,
@@ -512,6 +558,16 @@ class ReasoningCoordinator:
                     hypotheses=turn.hypotheses,
                     investigation_responses=turn.responses,
                 )
+                if investigator_memory is not None:
+                    citations = tuple(
+                        citation
+                        for item in (*turn.claims, *turn.hypotheses)
+                        for citation in item.citations
+                    )
+                    investigator_memory.record_investigation(
+                        turn.claims, turn.hypotheses, citations
+                    )
+                    investigator_memory.mark_requests_reviewed(pending)
                 binding = bind_proposal_to_package(proposal, last_package)
                 case = case.evolve(package_bindings=(binding,))
                 trace = _append_trace(
@@ -522,6 +578,10 @@ class ReasoningCoordinator:
                     {
                         "claim_ids": tuple(c.claim_id for c in turn.claims),
                         "hypothesis_ids": tuple(h.hypothesis_id for h in turn.hypotheses),
+                        "memory_object_ids": tuple(
+                            [f"claim:{item.claim_id}" for item in turn.claims]
+                            + [f"hypothesis:{item.hypothesis_id}" for item in turn.hypotheses]
+                        ),
                         "uncertainties": turn.uncertainties,
                     },
                     operation_journal,
@@ -534,6 +594,14 @@ class ReasoningCoordinator:
                         for citation in claim.citations
                     }.values()
                 )
+                challenger_operation = f"cycle-{workflow.investigation_cycles}/challenger"
+                challenger_summary = (
+                    None if challenger_memory is None else challenger_memory.summary()
+                )
+                if operation_journal is not None:
+                    challenger_summary = operation_journal.memory_summary_for_operation(
+                        challenger_operation, challenger_summary
+                    )
                 challenger_input = ChallengerInput(
                     proposal,
                     case.claims,
@@ -541,10 +609,12 @@ class ReasoningCoordinator:
                     cited_records,
                     case.objections,
                     feedback,
+                    challenger_summary,
+                    challenger_memory,
                 )
                 challenge = _invoke_operation(
                     operation_journal,
-                    f"cycle-{workflow.investigation_cycles}/challenger",
+                    challenger_operation,
                     "challenger",
                     challenger_input,
                     lambda: self.challenger.challenge(challenger_input),
@@ -561,6 +631,12 @@ class ReasoningCoordinator:
                         )
                     for citation in objection.citations:
                         citation.validate_against(last_package)
+                if challenger_memory is not None:
+                    challenger_memory.record_objections(
+                        challenge.objections,
+                        challenge.evidence_requests,
+                        proposal_id=proposal.proposal_id,
+                    )
                 case = case.evolve(objections=challenge.objections)
                 trace = _append_trace(
                     trace,
@@ -569,16 +645,33 @@ class ReasoningCoordinator:
                     tuple(o.objection_id for o in challenge.objections),
                     {
                         "objection_ids": tuple(o.objection_id for o in challenge.objections),
+                        "memory_object_ids": tuple(
+                            f"objection:{item.objection_id}" for item in challenge.objections
+                        ),
                         "targeted_request_count": len(challenge.evidence_requests),
                     },
                     operation_journal,
                 )
                 workflow = transition(WorkflowState.REASONING)
                 tools = ReadOnlyTools(last_package)
-                operator_input = OperatorInput("REASON", proposal, case, last_package, feedback)
+                operator_operation = f"cycle-{workflow.investigation_cycles}/operator-reason"
+                operator_summary = None if operator_memory is None else operator_memory.summary()
+                if operation_journal is not None:
+                    operator_summary = operation_journal.memory_summary_for_operation(
+                        operator_operation, operator_summary
+                    )
+                operator_input = OperatorInput(
+                    "REASON",
+                    proposal,
+                    case,
+                    last_package,
+                    feedback,
+                    memory_summary=operator_summary,
+                    memory_access=operator_memory,
+                )
                 decision = _invoke_operation(
                     operation_journal,
-                    f"cycle-{workflow.investigation_cycles}/operator-reason",
+                    operator_operation,
                     "operator",
                     operator_input,
                     lambda: self.operator.decide(operator_input),
@@ -593,6 +686,9 @@ class ReasoningCoordinator:
                     raise CoordinatorError(
                         "Only the Operator can resolve objections in this workflow."
                     )
+                if operator_memory is not None:
+                    operator_memory.record_resolutions(decision.resolutions)
+                    operator_memory.record_requests(decision.requests)
                 results = _invoke_operation(
                     operation_journal,
                     f"cycle-{workflow.investigation_cycles}/tools",
@@ -602,6 +698,16 @@ class ReasoningCoordinator:
                     workflow.state.value,
                 )
                 if results:
+                    tool_review_operation = (
+                        f"cycle-{workflow.investigation_cycles}/operator-tool-review"
+                    )
+                    tool_review_summary = (
+                        None if operator_memory is None else operator_memory.summary()
+                    )
+                    if operation_journal is not None:
+                        tool_review_summary = operation_journal.memory_summary_for_operation(
+                            tool_review_operation, tool_review_summary
+                        )
                     tool_review_input = OperatorInput(
                         "REASON_WITH_TOOL_RESULTS",
                         proposal,
@@ -609,10 +715,12 @@ class ReasoningCoordinator:
                         last_package,
                         feedback,
                         results,
+                        memory_summary=tool_review_summary,
+                        memory_access=operator_memory,
                     )
                     decision = _invoke_operation(
                         operation_journal,
-                        f"cycle-{workflow.investigation_cycles}/operator-tool-review",
+                        tool_review_operation,
                         "operator_tool_review",
                         tool_review_input,
                         lambda: self.operator.decide(tool_review_input),
@@ -690,6 +798,8 @@ class ReasoningCoordinator:
                         workflow.state.value,
                     )
                     proposal = next_proposal
+                    if operator_memory is not None:
+                        operator_memory.record_proposal(proposal)
                     case = case.evolve(
                         current_proposal_id=proposal.proposal_id, proposals=(proposal,)
                     )
@@ -726,6 +836,8 @@ class ReasoningCoordinator:
                         ),
                         workflow.state.value,
                     )
+                    if operator_memory is not None:
+                        operator_memory.record_deterministic_findings(feedback)
                     trace = _append_trace(
                         trace,
                         "VERIFY",
@@ -738,16 +850,28 @@ class ReasoningCoordinator:
                         operation_journal,
                     )
                     case = case.evolve(verification_feedback=(feedback,))
+                    verification_operation = (
+                        f"cycle-{workflow.investigation_cycles}/operator-verification"
+                    )
+                    verification_summary = (
+                        None if operator_memory is None else operator_memory.summary()
+                    )
+                    if operation_journal is not None:
+                        verification_summary = operation_journal.memory_summary_for_operation(
+                            verification_operation, verification_summary
+                        )
                     verifier_input = OperatorInput(
                         "VERIFICATION_FEEDBACK",
                         proposal,
                         case,
                         last_package,
                         feedback,
+                        memory_summary=verification_summary,
+                        memory_access=operator_memory,
                     )
                     verifier_choice = _invoke_operation(
                         operation_journal,
-                        f"cycle-{workflow.investigation_cycles}/operator-verification",
+                        verification_operation,
                         "operator_verification",
                         verifier_input,
                         lambda: self.operator.decide(verifier_input),
