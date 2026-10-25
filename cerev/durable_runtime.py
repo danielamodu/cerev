@@ -26,15 +26,28 @@ from pathlib import Path
 from typing import Any, get_args, get_origin, get_type_hints
 
 from cerev.coordinator import CoordinatedRun
+from cerev.memory import (
+    CaseMemoryAccess,
+    MemoryAuthor,
+    MemoryDraft,
+    MemoryObject,
+    MemoryObjectType,
+    MemoryQuery,
+    MemoryRelationship,
+    MemoryStatus,
+    RelationshipDraft,
+    RelationshipType,
+)
 from cerev.orchestration import (
     ActionProposal,
+    AgentRole,
     EvidenceRequest,
     OrchestrationWorkflow,
     WorkflowIdentity,
 )
 from cerev.receipt import canonical_json_bytes
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _MODULES = (
     "cerev.coordinator",
     "cerev.evidence_provider",
@@ -45,6 +58,7 @@ _MODULES = (
     "cerev.reference",
     "cerev.conflicts",
     "cerev.receipt",
+    "cerev.memory",
 )
 
 
@@ -137,6 +151,9 @@ class DurableWorkflowStore:
                             "Unversioned database contains tables; refusing an implicit migration."
                         )
                     self._create_schema(connection)
+                    connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                elif version == 1:
+                    self._migrate_v1_to_v2(connection)
                     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
                 elif version != SCHEMA_VERSION:
                     raise WorkflowSchemaError(f"No migration is defined from schema {version}.")
@@ -232,6 +249,126 @@ class DurableWorkflowStore:
         )
         for statement in statements:
             connection.execute(statement)
+        DurableWorkflowStore._create_memory_schema(connection)
+
+    @staticmethod
+    def _create_memory_schema(connection: sqlite3.Connection) -> None:
+        statements = (
+            """CREATE TABLE reasoning_memory_objects (
+                workflow_id TEXT NOT NULL,
+                object_id TEXT NOT NULL,
+                object_type TEXT NOT NULL CHECK (object_type IN (
+                    'proposal','claim','hypothesis','objection','resolution_proposal',
+                    'evidence_reference','evidence_request','deterministic_finding')),
+                proposal_id TEXT,
+                proposal_object_id TEXT,
+                authored_by TEXT NOT NULL CHECK (authored_by IN (
+                    'OPERATOR','INVESTIGATOR','CHALLENGER','DETERMINISTIC_VERIFIER')),
+                status TEXT NOT NULL CHECK (status IN (
+                    'ACTIVE','SUPERSEDED','OPEN','REVIEWED','PROPOSED','VALIDATED','UNRESOLVED')),
+                payload_json TEXT NOT NULL,
+                payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256)=64),
+                evidence_package_id TEXT,
+                evidence_id TEXT,
+                source_id TEXT,
+                source_record_id TEXT,
+                source_version TEXT,
+                content_sha256 TEXT,
+                field_path TEXT,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (workflow_id, object_id),
+                FOREIGN KEY (workflow_id) REFERENCES workflows(workflow_id),
+                FOREIGN KEY (workflow_id, proposal_object_id)
+                    REFERENCES reasoning_memory_objects(workflow_id, object_id),
+                CHECK ((object_type='evidence_reference' AND evidence_package_id IS NOT NULL
+                    AND evidence_id IS NOT NULL AND source_id IS NOT NULL
+                    AND source_record_id IS NOT NULL AND content_sha256 IS NOT NULL
+                    AND field_path IS NOT NULL)
+                    OR (object_type!='evidence_reference' AND evidence_package_id IS NULL
+                    AND evidence_id IS NULL AND source_id IS NULL AND source_record_id IS NULL
+                    AND content_sha256 IS NULL AND field_path IS NULL)),
+                CHECK ((object_type IN ('claim','hypothesis','proposal')
+                    AND status IN ('ACTIVE','SUPERSEDED'))
+                    OR (object_type='objection' AND status IN ('OPEN','REVIEWED'))
+                    OR (object_type='resolution_proposal' AND status='PROPOSED')
+                    OR (object_type='evidence_reference' AND status='VALIDATED')
+                    OR (object_type='evidence_request' AND status IN ('OPEN','REVIEWED'))
+                    OR (object_type='deterministic_finding' AND status='UNRESOLVED'))
+            )""",
+            """CREATE TABLE reasoning_memory_relationships (
+                workflow_id TEXT NOT NULL,
+                relationship_id TEXT NOT NULL,
+                source_object_id TEXT NOT NULL,
+                target_object_id TEXT NOT NULL,
+                relationship_type TEXT NOT NULL CHECK (relationship_type IN (
+                    'supports','contradicts','challenges','targets','competes_with','addresses',
+                    'supersedes','observed_in')),
+                authored_by TEXT NOT NULL CHECK (authored_by IN (
+                    'OPERATOR','INVESTIGATOR','CHALLENGER','DETERMINISTIC_VERIFIER')),
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (workflow_id, relationship_id),
+                UNIQUE (workflow_id, source_object_id, target_object_id, relationship_type),
+                FOREIGN KEY (workflow_id) REFERENCES workflows(workflow_id),
+                FOREIGN KEY (workflow_id, source_object_id)
+                    REFERENCES reasoning_memory_objects(workflow_id, object_id),
+                FOREIGN KEY (workflow_id, target_object_id)
+                    REFERENCES reasoning_memory_objects(workflow_id, object_id),
+                CHECK (source_object_id != target_object_id)
+            )""",
+            "CREATE INDEX reasoning_memory_object_query_idx "
+            "ON reasoning_memory_objects(workflow_id, object_type, authored_by, "
+            "status, created_at)",
+            "CREATE INDEX reasoning_memory_proposal_idx "
+            "ON reasoning_memory_objects(workflow_id, proposal_id, created_at)",
+            "CREATE INDEX reasoning_memory_evidence_idx "
+            "ON reasoning_memory_objects(workflow_id, evidence_id, evidence_package_id)",
+            "CREATE INDEX reasoning_memory_relationship_target_idx "
+            "ON reasoning_memory_relationships(workflow_id, target_object_id, relationship_type)",
+            """CREATE TRIGGER reasoning_memory_objects_immutable BEFORE UPDATE
+                ON reasoning_memory_objects
+                WHEN OLD.workflow_id IS NOT NEW.workflow_id OR OLD.object_id IS NOT NEW.object_id
+                    OR OLD.object_type IS NOT NEW.object_type
+                    OR OLD.proposal_id IS NOT NEW.proposal_id
+                    OR OLD.authored_by IS NOT NEW.authored_by
+                    OR OLD.payload_json IS NOT NEW.payload_json
+                    OR OLD.payload_sha256 IS NOT NEW.payload_sha256
+                    OR OLD.evidence_package_id IS NOT NEW.evidence_package_id
+                    OR OLD.evidence_id IS NOT NEW.evidence_id OR OLD.source_id IS NOT NEW.source_id
+                    OR OLD.source_record_id IS NOT NEW.source_record_id
+                    OR OLD.source_version IS NOT NEW.source_version
+                    OR OLD.content_sha256 IS NOT NEW.content_sha256
+                    OR OLD.field_path IS NOT NEW.field_path OR OLD.created_at IS NOT NEW.created_at
+                    OR NOT ((OLD.object_type IN ('claim','hypothesis','proposal')
+                        AND OLD.status='ACTIVE' AND NEW.status='SUPERSEDED')
+                        OR (OLD.object_type='objection' AND OLD.status='OPEN'
+                            AND NEW.status='REVIEWED')
+                        OR (OLD.object_type='evidence_request' AND OLD.status='OPEN'
+                            AND NEW.status='REVIEWED'))
+                BEGIN SELECT RAISE(ABORT, 'invalid or immutable reasoning memory update'); END""",
+            """CREATE TRIGGER reasoning_memory_objects_no_delete BEFORE DELETE
+                ON reasoning_memory_objects
+                BEGIN SELECT RAISE(ABORT, 'reasoning memory is append-only'); END""",
+            """CREATE TRIGGER reasoning_memory_relationships_no_update BEFORE UPDATE
+                ON reasoning_memory_relationships
+                BEGIN SELECT RAISE(ABORT, 'reasoning relationships are append-only'); END""",
+            """CREATE TRIGGER reasoning_memory_relationships_no_delete BEFORE DELETE
+                ON reasoning_memory_relationships
+                BEGIN SELECT RAISE(ABORT, 'reasoning relationships are append-only'); END""",
+        )
+        for statement in statements:
+            connection.execute(statement)
+
+    @staticmethod
+    def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        required = {"workflows", "workflow_events", "workflow_checkpoints", "workflow_operations"}
+        if not required <= tables:
+            raise WorkflowSchemaError("Schema 1 is incomplete; refusing a partial migration.")
+        DurableWorkflowStore._create_memory_schema(connection)
+        connection.execute("UPDATE workflows SET schema_version=2")
 
     def create_workflow(
         self,
@@ -323,6 +460,12 @@ class DurableWorkflowStore:
             raise
         except sqlite3.Error as error:
             raise DurableRuntimeError(f"Could not create workflow: {error}") from error
+
+    def memory_for(self, workflow_id: str, role: Any) -> CaseMemoryAccess:
+        if not isinstance(role, AgentRole):
+            raise ValueError("Memory access requires a valid agent role.")
+        self.verify_workflow(workflow_id)
+        return CaseMemoryAccess(_WorkflowMemoryReader(self, workflow_id), role, read_only=True)
 
     def acquire(self, workflow_id: str) -> WorkflowSession:
         token = uuid.uuid4().hex
@@ -541,6 +684,421 @@ class DurableWorkflowStore:
         )
         return version
 
+    def _persist_memory(
+        self,
+        workflow_id: str,
+        role: AgentRole,
+        objects: tuple[MemoryDraft, ...],
+        relationships: tuple[RelationshipDraft, ...],
+        *,
+        status_updates: tuple[tuple[str, MemoryStatus], ...],
+        owner_token: str | None,
+    ) -> None:
+        from cerev.memory import RelationshipType
+
+        if not isinstance(role, AgentRole):
+            raise PermissionError("Reasoning memory writes require an agent-scoped role.")
+        object_hashes = {
+            draft.object_id: _sha(_dump(draft.payload).encode("utf-8")) for draft in objects
+        }
+        object_authors = {
+            draft.object_id: self._validate_memory_draft(role, draft, workflow_id).value
+            for draft in objects
+        }
+        relationship_metadata = {}
+        for item in relationships:
+            relationship_id = _memory_relationship_id(workflow_id, item)
+            relationship_author = (
+                MemoryAuthor.DETERMINISTIC_VERIFIER.value
+                if item.relationship_type == RelationshipType.OBSERVED_IN
+                else role.value
+            )
+            relationship_metadata[relationship_id] = {
+                "source_object_id": item.source_object_id,
+                "target_object_id": item.target_object_id,
+                "relationship_type": item.relationship_type.value,
+                "authored_by": relationship_author,
+            }
+        payload = {
+            "role": role.value,
+            "object_hashes": object_hashes,
+            "object_metadata": {
+                draft.object_id: {
+                    "object_type": draft.object_type.value,
+                    "proposal_id": draft.proposal_id,
+                    "proposal_object_id": _proposal_reference_id(draft),
+                    "authored_by": object_authors[draft.object_id],
+                    "initial_status": draft.status.value,
+                }
+                for draft in objects
+            },
+            "relationship_metadata": relationship_metadata,
+            "status_updates": tuple(sorted(status_updates)),
+        }
+        payload_json = _dump(payload)
+        operation_id = f"memory/{_sha(payload_json.encode('utf-8'))}"
+        now = _now()
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if owner_token is not None:
+                owner = connection.execute(
+                    "SELECT owner_token,status FROM workflows WHERE workflow_id=?",
+                    (workflow_id,),
+                ).fetchone()
+                if (
+                    owner is None
+                    or owner["owner_token"] != owner_token
+                    or owner["status"] != "RUNNING"
+                ):
+                    raise WorkflowConflictError("Workflow lease or active status was lost.")
+            existing_event = connection.execute(
+                "SELECT payload_json FROM workflow_events WHERE workflow_id=? "
+                "AND event_kind='memory.batch' AND operation_id=?",
+                (workflow_id, operation_id),
+            ).fetchone()
+            if existing_event is not None:
+                if existing_event["payload_json"] != payload_json:
+                    raise WorkflowConflictError("A repeated memory batch has changed content.")
+                connection.rollback()
+                return
+
+            object_authors: dict[str, MemoryAuthor] = {}
+            for draft in objects:
+                author = self._validate_memory_draft(role, draft, workflow_id)
+                object_authors[draft.object_id] = author
+                payload_obj = _dump(draft.payload)
+                payload_hash = _sha(payload_obj.encode("utf-8"))
+                evidence_values = _memory_evidence_columns(draft)
+                row = connection.execute(
+                    "SELECT object_type,proposal_id,proposal_object_id,authored_by,"
+                    "payload_json,payload_sha256 "
+                    "FROM reasoning_memory_objects WHERE workflow_id=? AND object_id=?",
+                    (workflow_id, draft.object_id),
+                ).fetchone()
+                if row is not None:
+                    if (
+                        row["object_type"] != draft.object_type.value
+                        or row["proposal_id"] != draft.proposal_id
+                        or row["proposal_object_id"] != _proposal_reference_id(draft)
+                        or row["authored_by"] != author.value
+                        or row["payload_json"] != payload_obj
+                        or row["payload_sha256"] != payload_hash
+                    ):
+                        raise WorkflowConflictError(
+                            f"Memory object {draft.object_id!r} already exists with other content."
+                        )
+                    continue
+                if draft.object_type == MemoryObjectType.EVIDENCE_REFERENCE:
+                    _validate_stored_citation(connection, workflow_id, draft.payload)
+                connection.execute(
+                    """INSERT INTO reasoning_memory_objects (
+                        workflow_id,object_id,object_type,proposal_id,proposal_object_id,authored_by,status,
+                        payload_json,payload_sha256,evidence_package_id,evidence_id,source_id,
+                        source_record_id,source_version,content_sha256,field_path,created_at
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        workflow_id,
+                        draft.object_id,
+                        draft.object_type.value,
+                        draft.proposal_id,
+                        _proposal_reference_id(draft),
+                        author.value,
+                        draft.status.value,
+                        payload_obj,
+                        payload_hash,
+                        *evidence_values,
+                        now,
+                    ),
+                )
+
+            for object_id, status in status_updates:
+                row = connection.execute(
+                    "SELECT object_type,status FROM reasoning_memory_objects "
+                    "WHERE workflow_id=? AND object_id=?",
+                    (workflow_id, object_id),
+                ).fetchone()
+                if row is None:
+                    raise WorkflowConflictError(
+                        f"Memory lifecycle target {object_id!r} is missing."
+                    )
+                if row["status"] == status.value:
+                    continue
+                if not _memory_status_transition(row["object_type"], row["status"], status.value):
+                    raise WorkflowConflictError(
+                        f"Invalid memory status transition {row['status']} -> {status.value}."
+                    )
+                connection.execute(
+                    "UPDATE reasoning_memory_objects SET status=? "
+                    "WHERE workflow_id=? AND object_id=?",
+                    (status.value, workflow_id, object_id),
+                )
+
+            for item in relationships:
+                self._validate_memory_relationship(role, item, connection, workflow_id)
+                source = connection.execute(
+                    "SELECT object_type FROM reasoning_memory_objects "
+                    "WHERE workflow_id=? AND object_id=?",
+                    (workflow_id, item.source_object_id),
+                ).fetchone()
+                target = connection.execute(
+                    "SELECT object_type FROM reasoning_memory_objects "
+                    "WHERE workflow_id=? AND object_id=?",
+                    (workflow_id, item.target_object_id),
+                ).fetchone()
+                if source is None or target is None:
+                    raise WorkflowConflictError("Memory relationship references an unknown object.")
+                if not _valid_memory_edge(
+                    item.relationship_type.value, source["object_type"], target["object_type"]
+                ):
+                    raise PermissionError("Memory relationship endpoint types are incompatible.")
+                relationship_id = _memory_relationship_id(workflow_id, item)
+                connection.execute(
+                    "INSERT OR IGNORE INTO reasoning_memory_relationships VALUES (?,?,?,?,?,?,?)",
+                    (
+                        workflow_id,
+                        relationship_id,
+                        item.source_object_id,
+                        item.target_object_id,
+                        item.relationship_type.value,
+                        (
+                            MemoryAuthor.DETERMINISTIC_VERIFIER.value
+                            if item.relationship_type == RelationshipType.OBSERVED_IN
+                            else role.value
+                        ),
+                        now,
+                    ),
+                )
+                stored = connection.execute(
+                    "SELECT relationship_id,authored_by FROM reasoning_memory_relationships "
+                    "WHERE workflow_id=? AND source_object_id=? AND target_object_id=? "
+                    "AND relationship_type=?",
+                    (
+                        workflow_id,
+                        item.source_object_id,
+                        item.target_object_id,
+                        item.relationship_type.value,
+                    ),
+                ).fetchone()
+                expected_author = (
+                    MemoryAuthor.DETERMINISTIC_VERIFIER.value
+                    if item.relationship_type == RelationshipType.OBSERVED_IN
+                    else role.value
+                )
+                if (
+                    stored is None
+                    or stored["relationship_id"] != relationship_id
+                    or stored["authored_by"] != expected_author
+                ):
+                    raise WorkflowConflictError("Conflicting duplicate memory relationship.")
+
+            event = self._append_event_locked(
+                connection, workflow_id, "memory.batch", operation_id, payload, now
+            )
+            workflow = connection.execute(
+                "SELECT state FROM workflows WHERE workflow_id=?", (workflow_id,)
+            ).fetchone()
+            self._write_checkpoint_locked(
+                connection,
+                workflow_id,
+                workflow["state"],
+                {"kind": "memory.batch", "operation_id": operation_id},
+                event,
+                now,
+            )
+            connection.commit()
+
+    @staticmethod
+    def _validate_memory_draft(
+        role: AgentRole, draft: MemoryDraft, workflow_id: str
+    ) -> MemoryAuthor:
+        from cerev.orchestration import (
+            ActionProposal,
+            ChallengerObjection,
+            EvidenceCitation,
+            EvidenceRequest,
+            InvestigatorClaim,
+            InvestigatorHypothesis,
+            ObjectionResolution,
+            VerificationFinding,
+        )
+
+        expected = {
+            MemoryObjectType.PROPOSAL: (AgentRole.OPERATOR, ActionProposal),
+            MemoryObjectType.CLAIM: (AgentRole.INVESTIGATOR, InvestigatorClaim),
+            MemoryObjectType.HYPOTHESIS: (AgentRole.INVESTIGATOR, InvestigatorHypothesis),
+            MemoryObjectType.OBJECTION: (AgentRole.CHALLENGER, ChallengerObjection),
+            MemoryObjectType.RESOLUTION_PROPOSAL: (AgentRole.OPERATOR, ObjectionResolution),
+            MemoryObjectType.EVIDENCE_REQUEST: (role, EvidenceRequest),
+            MemoryObjectType.EVIDENCE_REFERENCE: (None, EvidenceCitation),
+            MemoryObjectType.DETERMINISTIC_FINDING: (AgentRole.OPERATOR, VerificationFinding),
+        }
+        required_role, payload_type = expected[draft.object_type]
+        if required_role is not None and role != required_role:
+            raise PermissionError(f"Role {role.value} cannot add {draft.object_type.value} memory.")
+        if not isinstance(draft.payload, payload_type):
+            raise TypeError(f"{draft.object_type.value} payload has the wrong contract type.")
+        payload_workflow = getattr(draft.payload, "workflow_id", workflow_id)
+        if payload_workflow != workflow_id:
+            raise PermissionError("Memory object belongs to another workflow.")
+        if draft.object_type == MemoryObjectType.EVIDENCE_REQUEST:
+            request = draft.payload
+            if request.requested_by != role:
+                raise PermissionError("Evidence requests must be stored by their requesting role.")
+        if draft.object_type == MemoryObjectType.EVIDENCE_REFERENCE:
+            if role not in {AgentRole.INVESTIGATOR, AgentRole.CHALLENGER}:
+                raise PermissionError("Only evidence reasoning roles may add evidence references.")
+            author = (
+                AgentRole.INVESTIGATOR if role == AgentRole.INVESTIGATOR else AgentRole.CHALLENGER
+            )
+        elif draft.object_type == MemoryObjectType.DETERMINISTIC_FINDING:
+            author = MemoryAuthor.DETERMINISTIC_VERIFIER
+        else:
+            author = MemoryAuthor(role.value)
+        return author
+
+    @staticmethod
+    def _validate_memory_relationship(
+        role: AgentRole,
+        item: RelationshipDraft,
+        connection: sqlite3.Connection,
+        workflow_id: str,
+    ) -> None:
+        permissions = {
+            "supports": {AgentRole.INVESTIGATOR, AgentRole.CHALLENGER},
+            "contradicts": {AgentRole.CHALLENGER},
+            "challenges": {AgentRole.CHALLENGER},
+            "targets": {AgentRole.OPERATOR, AgentRole.CHALLENGER},
+            "competes_with": {AgentRole.INVESTIGATOR, AgentRole.CHALLENGER},
+            "addresses": {AgentRole.OPERATOR},
+            "supersedes": {AgentRole.INVESTIGATOR, AgentRole.OPERATOR},
+            "observed_in": {AgentRole.OPERATOR},
+        }
+        if role not in permissions[item.relationship_type.value]:
+            raise PermissionError("Role cannot create this memory relationship type.")
+
+    def _verify_memory_locked(self, connection: sqlite3.Connection, workflow_id: str) -> None:
+        rows = connection.execute(
+            "SELECT * FROM reasoning_memory_objects WHERE workflow_id=?",
+            (workflow_id,),
+        ).fetchall()
+        batches = connection.execute(
+            "SELECT payload_json,occurred_at FROM workflow_events WHERE workflow_id=? "
+            "AND event_kind='memory.batch'",
+            (workflow_id,),
+        ).fetchall()
+        object_event_hashes: dict[str, str] = {}
+        object_metadata: dict[str, Mapping[str, Any]] = {}
+        relationship_metadata: dict[str, Mapping[str, Any]] = {}
+        object_event_times: dict[str, str] = {}
+        relationship_event_times: dict[str, str] = {}
+        status_history: dict[str, str] = {}
+        for batch in batches:
+            payload = _loads(batch["payload_json"])
+            object_event_hashes.update(payload.get("object_hashes", {}))
+            object_metadata.update(payload.get("object_metadata", {}))
+            relationship_batch = payload.get("relationship_metadata", {})
+            relationship_metadata.update(relationship_batch)
+            for object_id in payload.get("object_hashes", {}):
+                object_event_times.setdefault(object_id, batch["occurred_at"])
+            for relationship_id in relationship_batch:
+                relationship_event_times.setdefault(relationship_id, batch["occurred_at"])
+            for object_id, status in payload.get("status_updates", ()):
+                status_history[object_id] = status.value if isinstance(status, Enum) else status
+        for row in rows:
+            if _sha(row["payload_json"].encode("utf-8")) != row["payload_sha256"]:
+                raise WorkflowCorruptionError("Reasoning memory payload digest is invalid.")
+            if object_event_hashes.get(row["object_id"]) != row["payload_sha256"]:
+                raise WorkflowCorruptionError(
+                    "Reasoning memory object lacks a matching history event."
+                )
+            metadata = object_metadata.get(row["object_id"])
+            if metadata is None or (
+                metadata.get("object_type") != row["object_type"]
+                or metadata.get("proposal_id") != row["proposal_id"]
+                or metadata.get("proposal_object_id") != row["proposal_object_id"]
+                or metadata.get("authored_by") != row["authored_by"]
+            ):
+                raise WorkflowCorruptionError(
+                    "Reasoning memory metadata lacks a matching history event."
+                )
+            if object_event_times.get(row["object_id"]) != row["created_at"]:
+                raise WorkflowCorruptionError(
+                    "Reasoning memory creation time lacks a history event."
+                )
+            initial_status = metadata.get("initial_status")
+            if (
+                row["status"] != initial_status
+                and status_history.get(row["object_id"]) != row["status"]
+            ):
+                raise WorkflowCorruptionError("Reasoning memory status lacks a lifecycle event.")
+            if row["status"] not in {"ACTIVE", "OPEN", "PROPOSED", "VALIDATED", "UNRESOLVED"} and (
+                status_history.get(row["object_id"]) != row["status"]
+            ):
+                raise WorkflowCorruptionError("Reasoning memory status lacks a lifecycle event.")
+            if row["object_type"] == MemoryObjectType.EVIDENCE_REFERENCE.value:
+                payload = _loads(row["payload_json"])
+                values = _memory_evidence_columns(
+                    MemoryDraft(
+                        row["object_id"],
+                        MemoryObjectType.EVIDENCE_REFERENCE,
+                        row["proposal_id"],
+                        MemoryStatus(row["status"]),
+                        payload,
+                    )
+                )
+                if values != (
+                    row["evidence_package_id"],
+                    row["evidence_id"],
+                    row["source_id"],
+                    row["source_record_id"],
+                    row["source_version"],
+                    row["content_sha256"],
+                    row["field_path"],
+                ):
+                    raise WorkflowCorruptionError(
+                        "Evidence reference columns do not match citation."
+                    )
+        objects_by_id = {row["object_id"]: row["object_type"] for row in rows}
+        if set(object_event_hashes) != set(objects_by_id):
+            raise WorkflowCorruptionError("Memory history and object rows do not match.")
+        links = connection.execute(
+            "SELECT * FROM reasoning_memory_relationships WHERE workflow_id=?",
+            (workflow_id,),
+        ).fetchall()
+        if set(relationship_metadata) != {row["relationship_id"] for row in links}:
+            raise WorkflowCorruptionError("Memory history and relationship rows do not match.")
+        for row in links:
+            metadata = relationship_metadata.get(row["relationship_id"])
+            if metadata is None or (
+                metadata.get("source_object_id") != row["source_object_id"]
+                or metadata.get("target_object_id") != row["target_object_id"]
+                or metadata.get("relationship_type") != row["relationship_type"]
+                or metadata.get("authored_by") != row["authored_by"]
+            ):
+                raise WorkflowCorruptionError("Reasoning relationship lacks a history event.")
+            if relationship_event_times.get(row["relationship_id"]) != row["created_at"]:
+                raise WorkflowCorruptionError("Reasoning relationship time lacks a history event.")
+            if (
+                row["source_object_id"] not in objects_by_id
+                or row["target_object_id"] not in objects_by_id
+            ):
+                raise WorkflowCorruptionError(
+                    "Reasoning memory relationship has a dangling endpoint."
+                )
+            if not _valid_memory_edge(
+                row["relationship_type"],
+                objects_by_id[row["source_object_id"]],
+                objects_by_id[row["target_object_id"]],
+            ):
+                raise WorkflowCorruptionError("Reasoning memory relationship types are invalid.")
+            expected_author = (
+                MemoryAuthor.DETERMINISTIC_VERIFIER.value
+                if row["relationship_type"] == RelationshipType.OBSERVED_IN.value
+                else row["authored_by"]
+            )
+            if row["authored_by"] != expected_author:
+                raise WorkflowCorruptionError("Memory relationship author is invalid.")
+
     def verify_workflow(self, workflow_id: str) -> StoredWorkflow:
         try:
             with self._connection() as connection:
@@ -694,6 +1252,7 @@ class DurableWorkflowStore:
                             raise WorkflowCorruptionError(
                                 "Operation output is not linked to its completion event."
                             )
+                self._verify_memory_locked(connection, workflow_id)
                 final_json = workflow["final_run_json"]
                 final_run = None if final_json is None else _decode(json.loads(final_json))
                 if final_run is not None and not isinstance(final_run, CoordinatedRun):
@@ -803,6 +1362,43 @@ class WorkflowSession:
             )
             if cursor.rowcount != 1:
                 raise WorkflowConflictError("Workflow lease was lost.")
+
+    def memory_for(self, role: Any) -> CaseMemoryAccess:
+        if not isinstance(role, AgentRole):
+            raise ValueError("Memory access requires a valid agent role.")
+        return CaseMemoryAccess(self, role)
+
+    def query_memory(self, query: MemoryQuery) -> Any:
+        return _query_memory(self.store, self.workflow_id, query)
+
+    def memory_summary_for_operation(self, operation_id: str, fallback: Any) -> Any:
+        with self.store._connection() as connection:
+            row = connection.execute(
+                "SELECT status,input_json FROM workflow_operations "
+                "WHERE workflow_id=? AND operation_id=?",
+                (self.workflow_id, operation_id),
+            ).fetchone()
+        if row is None or row["status"] != "COMPLETED":
+            return fallback
+        stored_input = _loads(row["input_json"])
+        return getattr(stored_input, "memory_summary", fallback)
+
+    def persist_memory(
+        self,
+        role: Any,
+        objects: tuple[MemoryDraft, ...],
+        relationships: tuple[RelationshipDraft, ...],
+        *,
+        status_updates: tuple[tuple[str, MemoryStatus], ...] = (),
+    ) -> None:
+        self.store._persist_memory(
+            self.workflow_id,
+            role,
+            objects,
+            relationships,
+            status_updates=status_updates,
+            owner_token=self.token,
+        )
 
     def invoke(
         self,
@@ -1186,6 +1782,202 @@ class DurableReasoningRuntime:
             session.release()
 
 
+class _WorkflowMemoryReader:
+    def __init__(self, store: DurableWorkflowStore, workflow_id: str) -> None:
+        self.store = store
+        self.workflow_id = workflow_id
+
+    def query_memory(self, query: MemoryQuery) -> Any:
+        return _query_memory(self.store, self.workflow_id, query)
+
+
+def _query_memory(store: DurableWorkflowStore, workflow_id: str, query: MemoryQuery) -> Any:
+    from cerev.memory import MemorySummary
+
+    if not isinstance(query, MemoryQuery):
+        raise TypeError("query must be a MemoryQuery.")
+    store.verify_workflow(workflow_id)
+    clauses = ["m.workflow_id=?"]
+    parameters: list[Any] = [workflow_id]
+    if query.object_types:
+        clauses.append(f"m.object_type IN ({','.join('?' for _ in query.object_types)})")
+        parameters.extend(item.value for item in query.object_types)
+    if query.authored_by:
+        clauses.append(f"m.authored_by IN ({','.join('?' for _ in query.authored_by)})")
+        parameters.extend(item.value for item in query.authored_by)
+    if query.statuses:
+        clauses.append(f"m.status IN ({','.join('?' for _ in query.statuses)})")
+        parameters.extend(item.value for item in query.statuses)
+    if query.proposal_id is not None:
+        clauses.append("m.proposal_id=?")
+        parameters.append(query.proposal_id)
+    if query.evidence_id is not None:
+        clauses.append(
+            "(m.evidence_id=? OR EXISTS (SELECT 1 FROM reasoning_memory_relationships r "
+            "JOIN reasoning_memory_objects e ON e.workflow_id=r.workflow_id "
+            "AND e.object_id=CASE WHEN r.source_object_id=m.object_id "
+            "THEN r.target_object_id ELSE r.source_object_id END "
+            "WHERE r.workflow_id=m.workflow_id AND (r.source_object_id=m.object_id "
+            "OR r.target_object_id=m.object_id) AND e.object_type='evidence_reference' "
+            "AND e.evidence_id=?))"
+        )
+        parameters.extend((query.evidence_id, query.evidence_id))
+    if query.related_object_id is not None:
+        clauses.append(
+            "(m.object_id=? OR EXISTS (SELECT 1 FROM reasoning_memory_relationships r "
+            "WHERE r.workflow_id=m.workflow_id AND "
+            "((r.source_object_id=m.object_id AND r.target_object_id=?) OR "
+            "(r.target_object_id=m.object_id AND r.source_object_id=?))))"
+        )
+        parameters.extend(
+            (query.related_object_id, query.related_object_id, query.related_object_id)
+        )
+    sql = (
+        "SELECT m.* FROM reasoning_memory_objects m WHERE "
+        + " AND ".join(clauses)
+        + " ORDER BY m.created_at DESC,m.object_id ASC LIMIT ?"
+    )
+    parameters.append(query.limit)
+    with store._connection() as connection:
+        rows = connection.execute(sql, parameters).fetchall()
+        object_ids = {row["object_id"] for row in rows}
+        relationship_rows = []
+        if object_ids:
+            marks = ",".join("?" for _ in object_ids)
+            relationship_rows = connection.execute(
+                "SELECT * FROM reasoning_memory_relationships WHERE workflow_id=? AND "
+                f"(source_object_id IN ({marks}) OR target_object_id IN ({marks})) "
+                "ORDER BY relationship_id LIMIT ?",
+                (workflow_id, *sorted(object_ids), *sorted(object_ids), query.limit * 4),
+            ).fetchall()
+    objects = tuple(
+        MemoryObject(
+            workflow_id=row["workflow_id"],
+            object_id=row["object_id"],
+            object_type=MemoryObjectType(row["object_type"]),
+            proposal_id=row["proposal_id"],
+            authored_by=MemoryAuthor(row["authored_by"]),
+            status=MemoryStatus(row["status"]),
+            payload=_loads(row["payload_json"]),
+            payload_sha256=row["payload_sha256"],
+            created_at=_parse_time(row["created_at"]),
+        )
+        for row in rows
+    )
+    relationships = tuple(
+        MemoryRelationship(
+            workflow_id=row["workflow_id"],
+            relationship_id=row["relationship_id"],
+            source_object_id=row["source_object_id"],
+            target_object_id=row["target_object_id"],
+            relationship_type=RelationshipType(row["relationship_type"]),
+            authored_by=MemoryAuthor(row["authored_by"]),
+            created_at=_parse_time(row["created_at"]),
+        )
+        for row in relationship_rows
+    )
+    return MemorySummary(workflow_id, objects, relationships)
+
+
+def _memory_relationship_id(workflow_id: str, item: RelationshipDraft) -> str:
+    material = _dump(
+        (
+            workflow_id,
+            item.source_object_id,
+            item.target_object_id,
+            item.relationship_type,
+        )
+    )
+    return _sha(material.encode("utf-8"))
+
+
+def _proposal_reference_id(draft: MemoryDraft) -> str | None:
+    if draft.object_type == MemoryObjectType.PROPOSAL:
+        parent_id = getattr(draft.payload, "parent_proposal_id", None)
+        return None if parent_id is None else f"proposal:{parent_id}"
+    return None if draft.proposal_id is None else f"proposal:{draft.proposal_id}"
+
+
+def _memory_evidence_columns(draft: MemoryDraft) -> tuple[str | None, ...]:
+    if draft.object_type != MemoryObjectType.EVIDENCE_REFERENCE:
+        return (None, None, None, None, None, None, None)
+    from cerev.orchestration import EvidenceCitation
+
+    if not isinstance(draft.payload, EvidenceCitation):
+        raise TypeError("Evidence references must contain an EvidenceCitation.")
+    citation = draft.payload
+    return (
+        citation.evidence_package_id,
+        citation.evidence_id,
+        citation.source_id,
+        citation.source_record_id,
+        citation.source_version,
+        citation.content_sha256,
+        citation.field_path,
+    )
+
+
+def _validate_stored_citation(
+    connection: sqlite3.Connection, workflow_id: str, citation: Any
+) -> None:
+    from cerev.evidence_provider import EvidenceProviderResult
+    from cerev.orchestration import EvidenceCitation
+
+    if not isinstance(citation, EvidenceCitation):
+        raise TypeError("Evidence references must contain a validated citation contract.")
+    rows = connection.execute(
+        "SELECT output_json FROM workflow_operations WHERE workflow_id=? "
+        "AND operation_kind='evidence_lookup' AND status='COMPLETED'",
+        (workflow_id,),
+    ).fetchall()
+    for row in rows:
+        result = _loads(row["output_json"])
+        if not isinstance(result, EvidenceProviderResult) or result.package is None:
+            continue
+        if result.package.package_id != citation.evidence_package_id:
+            continue
+        if not any(record.evidence_id == citation.evidence_id for record in result.records):
+            continue
+        try:
+            citation.validate_against(result.package)
+        except ValueError:
+            continue
+        return
+    raise PermissionError(
+        "Citation is not validated by a retained scoped evidence lookup for this workflow."
+    )
+
+
+def _memory_status_transition(object_type: str, before: str, after: str) -> bool:
+    if object_type in {"claim", "hypothesis", "proposal"}:
+        return before == "ACTIVE" and after == "SUPERSEDED"
+    if object_type in {"objection", "evidence_request"}:
+        return before == "OPEN" and after == "REVIEWED"
+    return False
+
+
+def _valid_memory_edge(relationship: str, source: str, target: str) -> bool:
+    allowed = {
+        "supports": {
+            ("evidence_reference", "claim"),
+            ("evidence_reference", "hypothesis"),
+            ("evidence_reference", "objection"),
+        },
+        "contradicts": {("claim", "claim"), ("hypothesis", "hypothesis")},
+        "challenges": {("objection", "claim")},
+        "targets": {("evidence_request", "claim"), ("evidence_request", "objection")},
+        "competes_with": {("hypothesis", "hypothesis")},
+        "addresses": {("resolution_proposal", "objection")},
+        "supersedes": {
+            ("claim", "claim"),
+            ("hypothesis", "hypothesis"),
+            ("proposal", "proposal"),
+        },
+        "observed_in": {("deterministic_finding", "evidence_reference")},
+    }
+    return (source, target) in allowed.get(relationship, set())
+
+
 def _sha(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -1237,7 +2029,7 @@ def _encode(value: Any) -> Any:
             "fields": {
                 field.name: _encode(getattr(value, field.name))
                 for field in dataclasses.fields(value)
-                if field.name != "private_reasoning"
+                if field.name not in {"private_reasoning", "memory_access"}
             },
         }
     if isinstance(value, Mapping):
@@ -1298,11 +2090,15 @@ def _decode(value: Any, expected: Any = Any) -> Any:
                 raise ValueError("Persisted dataclass fields are malformed.")
             init_fields = {field.name: field for field in dataclasses.fields(cls) if field.init}
             if set(encoded_fields) != {
-                field.name for field in dataclasses.fields(cls) if field.name != "private_reasoning"
+                field.name
+                for field in dataclasses.fields(cls)
+                if field.name not in {"private_reasoning", "memory_access"}
             }:
                 raise ValueError(f"Persisted {cls.__name__} field set is incompatible.")
             kwargs = {
-                name: _decode(encoded_fields[name], hints.get(name, Any)) for name in init_fields
+                name: _decode(encoded_fields[name], hints.get(name, Any))
+                for name in init_fields
+                if name in encoded_fields
             }
             result = cls(**kwargs)
             for field in dataclasses.fields(cls):
