@@ -334,8 +334,12 @@ _RECORD_ESTABLISHES = {
 }
 
 
-def load_canonical_evidence_package(fixture_dir: Path | None = None) -> EvidencePackage:
-    """Convert the five Phase 1 fixture datasets into a stable evidence package."""
+def load_canonical_evidence_package(
+    fixture_dir: Path | None = None,
+    *,
+    collection_method: str = "local_canonical_json_fixture",
+) -> EvidencePackage:
+    """Convert five canonical datasets into an evidence package using the same validator."""
     directory = fixture_dir or Path(__file__).resolve().parents[1] / "fixture"
     sources: list[EvidenceSource] = []
     records: list[EvidenceRecord] = []
@@ -426,7 +430,7 @@ def load_canonical_evidence_package(fixture_dir: Path | None = None) -> Evidence
         if timestamp.value is None
     )
     collection = CollectionMetadata(
-        method="local_canonical_json_fixture",
+        method=collection_method,
         datasets_loaded=len(sources),
         records_loaded=len(records),
         fixture_scope_complete=True,
@@ -439,13 +443,7 @@ def load_canonical_evidence_package(fixture_dir: Path | None = None) -> Evidence
         ),
         point_in_time_consistency_claimed=False,
         unavailable_timestamp_fields=unavailable_fields,
-        note=(
-            "All records present in the five canonical fixture datasets were loaded. "
-            "Source retrieval "
-            "times are unavailable, upstream source completeness is unknown, and no globally "
-            "consistent point-in-time snapshot is claimed. package_created_at is the local package "
-            "construction time, not a source observation time."
-        ),
+        note=_collection_note(collection_method),
     )
     package_id = (
         "evidence-package:"
@@ -462,6 +460,28 @@ def load_canonical_evidence_package(fixture_dir: Path | None = None) -> Evidence
         records=tuple(records),
         collection=collection,
         reference_calculation=reference_calculation,
+    )
+
+
+def _collection_note(method: str) -> str:
+    if method == "zetaris_federated_sql":
+        return (
+            "All records returned by the five configured Zetaris source adapters were loaded. "
+            "Per-source retrieval observations are retained by the enclosing EvidenceCollection; "
+            "upstream completeness is unknown and no globally consistent point-in-time snapshot "
+            "is claimed. package_created_at is package construction time, not source time."
+        )
+    if method == "local_canonical_json_fixture":
+        return (
+            "All records present in the five canonical fixture datasets were loaded. "
+            "Source retrieval times are unavailable, upstream source completeness is unknown, and "
+            "no globally consistent point-in-time snapshot is claimed. package_created_at is the "
+            "local package construction time, not a source observation time."
+        )
+    return (
+        "All records returned by the configured evidence sources were loaded. Source retrieval "
+        "times are retained by the enclosing EvidenceCollection; upstream completeness is unknown "
+        "and no globally consistent point-in-time snapshot is claimed."
     )
 
 
@@ -506,7 +526,13 @@ def _version_id(payload: Mapping[str, Any]) -> str | None:
         value = provenance.get("version_id")
         if isinstance(value, str) and value:
             return value
-    for key in ("contract_version", "policy_version", "adapter_version"):
+    for key in (
+        "source_version",
+        "version_id",
+        "contract_version",
+        "policy_version",
+        "adapter_version",
+    ):
         value = payload.get(key)
         if isinstance(value, str) and value:
             return value

@@ -111,6 +111,7 @@ class LocalSQLiteSourceAdapter:
             "backend": "sqlite",
             "database_path": str(self.database_path.resolve()),
             "mode": "local_simulation",
+            "simulated": True,
         }
 
     @classmethod
@@ -374,14 +375,13 @@ class EvidenceCollector:
             raise ValueError(
                 "EvidenceCollector requires exactly one adapter for each of five sources."
             )
-        paths = [
-            Path(adapter.connection_metadata["database_path"]).resolve()
-            for adapter in adapters
-            if adapter.connection_metadata.get("backend") == "sqlite"
-        ]
-        if len(paths) != len(expected) or len(set(paths)) != len(paths):
-            raise ValueError("Every local source adapter must use its own SQLite database file.")
+        simulation_modes = {
+            bool(adapter.connection_metadata.get("simulated", False)) for adapter in adapters
+        }
+        if len(simulation_modes) != 1:
+            raise ValueError("EvidenceCollector cannot mix simulation and live source adapters.")
         self.adapters = tuple(adapters)
+        self.simulated = simulation_modes.pop()
 
     def collect(self) -> EvidenceCollection:
         """Collect sources serially; source failures remain explicit and fail the package closed."""
@@ -399,7 +399,7 @@ class EvidenceCollector:
                         source_revision=None,
                         record_count=0,
                         connection_metadata=adapter.connection_metadata,
-                        simulated=True,
+                        simulated=bool(adapter.connection_metadata.get("simulated", False)),
                         error=error.to_info(),
                     )
                 )
@@ -423,14 +423,21 @@ class EvidenceCollector:
             with tempfile.TemporaryDirectory(prefix="cerev-source-collect-") as temporary:
                 staging = Path(temporary)
                 for retrieval in snapshots:
-                    adapter = next(
+                    definition = next(
                         item
-                        for item in self.adapters
-                        if item.identity.source_id == retrieval.identity.source_id
+                        for item in SOURCE_ADAPTER_TYPES
+                        if item.source_id == retrieval.identity.source_id
                     )
-                    path = staging / adapter.fixture_filename
+                    path = staging / definition.fixture_filename
                     path.write_bytes(canonical_json_bytes(retrieval.dataset))
-                package = load_canonical_evidence_package(staging)
+                package = load_canonical_evidence_package(
+                    staging,
+                    collection_method=(
+                        "local_canonical_json_fixture"
+                        if self.simulated
+                        else "zetaris_federated_sql"
+                    ),
+                )
         except (OSError, ReceiptError, ValueError, KeyError, TypeError) as error:
             # A malformed successful response is a collection failure, not an empty source.
             statuses = [
@@ -498,7 +505,13 @@ def _record_version(payload: Mapping[str, Any]) -> str | None:
         version = provenance.get("version_id")
         if isinstance(version, str) and version:
             return version
-    for field in ("contract_version", "policy_version", "adapter_version"):
+    for field in (
+        "source_version",
+        "version_id",
+        "contract_version",
+        "policy_version",
+        "adapter_version",
+    ):
         version = payload.get(field)
         if isinstance(version, str) and version:
             return version
