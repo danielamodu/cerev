@@ -1,0 +1,35 @@
+[
+  {
+    "transport_schema_version": "cerev.notice_record.transport.v1",
+    "logical_source_id": "source-maintenance-incident-registry",
+    "source_system": "maintenance_incident_registry",
+    "source_record_id": "notice-event-a-2024-03-06",
+    "record_category": "notice_record",
+    "dataset_kind": "canonical_simulation_fixture",
+    "source_native_version": null,
+    "payload_sha256": "9bdf3d1dc194a0ab2b6e4dcce4454a9e9ce2fda293399a81f54f255b098488a0",
+    "payload_json": "{\"dataset_kind\":\"canonical_simulation_fixture\",\"delivery_form\":null,\"event_id\":\"event-a\",\"fixture_record_id\":\"notice-event-a-2024-03-06\",\"logical_source_id\":\"source-maintenance-incident-registry\",\"notice_at\":\"2024-03-06T09:00:00Z\",\"provenance\":{\"observed_at\":null,\"record_created_at\":null,\"source_record_id\":\"notice-event-a-2024-03-06\",\"source_system\":\"maintenance_incident_registry\",\"version_id\":null},\"record_category\":\"notice_record\",\"source_native_created_at\":null,\"source_native_observed_at\":null,\"source_native_version\":null,\"source_record_id\":\"notice-event-a-2024-03-06\",\"source_system\":\"maintenance_incident_registry\"}"
+  },
+  {
+    "transport_schema_version": "cerev.notice_record.transport.v1",
+    "logical_source_id": "source-maintenance-incident-registry",
+    "source_system": "maintenance_incident_registry",
+    "source_record_id": "notice-event-b-2024-03-17",
+    "record_category": "notice_record",
+    "dataset_kind": "canonical_simulation_fixture",
+    "source_native_version": null,
+    "payload_sha256": "6e940a97ab9b7b954642a9f0dd678cc41e316b00b73dde1bd36db2a1b38cb114",
+    "payload_json": "{\"dataset_kind\":\"canonical_simulation_fixture\",\"delivery_form\":null,\"event_id\":\"event-b\",\"fixture_record_id\":\"notice-event-b-2024-03-17\",\"logical_source_id\":\"source-maintenance-incident-registry\",\"notice_at\":\"2024-03-17T14:00:00Z\",\"provenance\":{\"observed_at\":null,\"record_created_at\":null,\"source_record_id\":\"notice-event-b-2024-03-17\",\"source_system\":\"maintenance_incident_registry\",\"version_id\":null},\"record_category\":\"notice_record\",\"source_native_created_at\":null,\"source_native_observed_at\":null,\"source_native_version\":null,\"source_record_id\":\"notice-event-b-2024-03-17\",\"source_system\":\"maintenance_incident_registry\"}"
+  },
+  {
+    "transport_schema_version": "cerev.notice_record.transport.v1",
+    "logical_source_id": "source-maintenance-incident-registry",
+    "source_system": "maintenance_incident_registry",
+    "source_record_id": "notice-event-c-2024-03-22",
+    "record_category": "notice_record",
+    "dataset_kind": "canonical_simulation_fixture",
+    "source_native_version": null,
+    "payload_sha256": "c02ec965d5271211e655b8df11f750f416777ea2a11a5a7755e4f7ea333e8e84",
+    "payload_json": "{\"dataset_kind\":\"canonical_simulation_fixture\",\"delivery_form\":null,\"event_id\":\"event-c\",\"fixture_record_id\":\"notice-event-c-2024-03-22\",\"logical_source_id\":\"source-maintenance-incident-registry\",\"notice_at\":\"2024-03-22T18:00:00Z\",\"provenance\":{\"observed_at\":null,\"record_created_at\":null,\"source_record_id\":\"notice-event-c-2024-03-22\",\"source_system\":\"maintenance_incident_registry\",\"version_id\":null},\"record_category\":\"notice_record\",\"source_native_created_at\":null,\"source_native_observed_at\":null,\"source_native_version\":null,\"source_record_id\":\"notice-event-c-2024-03-22\",\"source_system\":\"maintenance_incident_registry\"}"
+  }
+]

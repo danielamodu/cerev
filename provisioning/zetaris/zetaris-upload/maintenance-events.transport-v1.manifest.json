@@ -1,0 +1,50 @@
+{
+  "dataset_kind": "canonical_simulation_fixture",
+  "envelope_filename": "maintenance-events.transport-v1.json",
+  "envelope_sha256": "676eb52438b44b8e96f53e66dd7893b1d2a23bc9069627db02273293ef195748",
+  "existing_adapter": "ZetarisMaintenanceIncidentAdapter",
+  "intended_zetaris_relation": "cerev_phase12_2_fixture.maintenance_events",
+  "logical_source_id": "source-maintenance-incident-registry",
+  "payload_sha256": [
+    {
+      "payload_sha256": "5bed702026a2f5291e3991a87302a19afc69ffa38141802c46c4246f5c7901fb",
+      "source_record_id": "maintenance-event-a-2024-03-08"
+    },
+    {
+      "payload_sha256": "6a68cbadc2299d587423324b01a296587e383c9ff5dff05101b043007a941ebf",
+      "source_record_id": "maintenance-event-b-2024-03-19"
+    },
+    {
+      "payload_sha256": "1ab3a6f75d031a0c42956b1c1a0e72f0a05dea9d827d943999a6bfe7b5b7bcf8",
+      "source_record_id": "maintenance-event-c-2024-03-24"
+    },
+    {
+      "payload_sha256": "4eb144f0de9cd47c53bf55a30318d161146950c29cc1c039c28008758cc5dd48",
+      "source_record_id": "incident-event-d-2024-03-28"
+    }
+  ],
+  "record_category": "maintenance_event",
+  "record_count": 4,
+  "record_group": "events",
+  "relation_status": "proposed_unregistered_unverified",
+  "source_fixture_identity": {
+    "logical_source_id": "source-maintenance-incident-registry",
+    "record_category": "maintenance_event",
+    "record_count": 4,
+    "source_file_sha256": "c37eb1391caf438d955aab358f73c0dcbe4feead8c8afb80ba7481a95b9d2af6",
+    "source_filename": "maintenance_events.jsonl",
+    "source_fixture_manifest_sha256": "cc8712c7d568159c9cbf1fb282c480d31d7f8f993a795731ca0ce7131ff7f49e",
+    "source_system": "maintenance_incident_registry"
+  },
+  "source_native_versions": [
+    null
+  ],
+  "source_record_ids": [
+    "maintenance-event-a-2024-03-08",
+    "maintenance-event-b-2024-03-19",
+    "maintenance-event-c-2024-03-24",
+    "incident-event-d-2024-03-28"
+  ],
+  "source_system": "maintenance_incident_registry",
+  "transport_schema_version": "cerev.maintenance_event.transport.v1"
+}

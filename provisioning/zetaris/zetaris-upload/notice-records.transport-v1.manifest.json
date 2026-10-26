@@ -1,0 +1,45 @@
+{
+  "dataset_kind": "canonical_simulation_fixture",
+  "envelope_filename": "notice-records.transport-v1.json",
+  "envelope_sha256": "b1a5947f26170a3d787e13c68b75dd9ae2b1f2ac82ab69254e14b9887594ce66",
+  "existing_adapter": "ZetarisMaintenanceIncidentAdapter",
+  "intended_zetaris_relation": "cerev_phase12_2_fixture.notice_records",
+  "logical_source_id": "source-maintenance-incident-registry",
+  "payload_sha256": [
+    {
+      "payload_sha256": "9bdf3d1dc194a0ab2b6e4dcce4454a9e9ce2fda293399a81f54f255b098488a0",
+      "source_record_id": "notice-event-a-2024-03-06"
+    },
+    {
+      "payload_sha256": "6e940a97ab9b7b954642a9f0dd678cc41e316b00b73dde1bd36db2a1b38cb114",
+      "source_record_id": "notice-event-b-2024-03-17"
+    },
+    {
+      "payload_sha256": "c02ec965d5271211e655b8df11f750f416777ea2a11a5a7755e4f7ea333e8e84",
+      "source_record_id": "notice-event-c-2024-03-22"
+    }
+  ],
+  "record_category": "notice_record",
+  "record_count": 3,
+  "record_group": "notice_records",
+  "relation_status": "proposed_unregistered_unverified",
+  "source_fixture_identity": {
+    "logical_source_id": "source-maintenance-incident-registry",
+    "record_category": "notice_record",
+    "record_count": 3,
+    "source_file_sha256": "6f4fbef4834e43d1a67f5d75f94effe416427933cd3a6baf8aad65ffb8e7428a",
+    "source_filename": "notice_records.jsonl",
+    "source_fixture_manifest_sha256": "cc8712c7d568159c9cbf1fb282c480d31d7f8f993a795731ca0ce7131ff7f49e",
+    "source_system": "maintenance_incident_registry"
+  },
+  "source_native_versions": [
+    null
+  ],
+  "source_record_ids": [
+    "notice-event-a-2024-03-06",
+    "notice-event-b-2024-03-17",
+    "notice-event-c-2024-03-22"
+  ],
+  "source_system": "maintenance_incident_registry",
+  "transport_schema_version": "cerev.notice_record.transport.v1"
+}
