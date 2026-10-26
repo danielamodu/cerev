@@ -11,6 +11,8 @@ from pathlib import Path
 from time import monotonic
 from typing import Protocol
 
+from dotenv import load_dotenv
+
 from cerev.evidence import EvidencePackage, EvidenceRecord
 from cerev.source_adapters import (
     SOURCE_ADAPTER_TYPES,
@@ -175,10 +177,10 @@ class LocalSQLiteEvidenceProvider(CollectedEvidenceProvider):
 
 
 class ZetarisEvidenceProvider(CollectedEvidenceProvider):
-    """Live provider; errors remain explicit and never fall back to local simulations."""
+    """Live Gateway provider; errors never fall back to local simulations."""
 
     def __init__(self, collector: EvidenceCollector) -> None:
-        super().__init__(collector, provider_id="zetaris-live", backend="zetaris_ui_proxy")
+        super().__init__(collector, provider_id="zetaris-live", backend="zetaris_gateway_proxy")
 
 
 class EvidenceMode(StrEnum):
@@ -190,6 +192,12 @@ def evidence_provider_from_environment(
     environ: Mapping[str, str] | None = None,
 ) -> EvidenceProvider:
     """Select exactly the configured mode; missing or failed live setup never falls back."""
+    if environ is None:
+        local_dotenv = Path.cwd() / ".env"
+        if local_dotenv.is_file():
+            load_dotenv(dotenv_path=local_dotenv, override=False)
+        else:
+            load_dotenv(override=False)
     values = os.environ if environ is None else environ
     raw_mode = values.get("CEREV_EVIDENCE_MODE", "")
     try:
