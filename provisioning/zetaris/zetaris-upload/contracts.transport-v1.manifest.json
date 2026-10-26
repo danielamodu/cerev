@@ -1,0 +1,18 @@
+{
+  "envelope_filename": "contracts.transport-v1.json",
+  "envelope_sha256": "419c9530545b6d7ae652853143fdee423aa49303a83edae5d31b93958f2ea2c5",
+  "payload_sha256": "a0ee28fcecb0c18fecce0b24ede964cd5278eaa86cdfad9a72bbdaaf848d6940",
+  "record_count": 1,
+  "source_fixture_identity": {
+    "dataset_kind": "canonical_simulation_fixture",
+    "logical_source_id": "source-contract-repository",
+    "record_category": "service_agreement",
+    "source_file_sha256": "2ce03b0d87221e1e5a9e6de9f5ed224dc0d5deebef2f3049d015d698c095b8f7",
+    "source_filename": "contract_records.jsonl",
+    "source_native_version": "V4",
+    "source_record_id": "contract-client-a-v4",
+    "source_system": "contract_repository"
+  },
+  "source_fixture_manifest_sha256": "cc8712c7d568159c9cbf1fb282c480d31d7f8f993a795731ca0ce7131ff7f49e",
+  "transport_schema_version": "cerev.contract_record.transport.v1"
+}
