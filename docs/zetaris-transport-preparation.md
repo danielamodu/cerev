@@ -3,34 +3,36 @@
 ## Scope and status
 
 This phase generated locally verifiable, byte-preserving transport artifacts for
-the 17 canonical records in the seven relation bindings that were not covered
-by the Phase 12.5 contract transport. It did not upload files, configure live
-bindings, query Zetaris for these relations, or change a live object.
+the 17 canonical simulation records in the seven bindings not covered by the
+Phase 12.5 contract transport. The records were later registered through the
+Zetaris UI, verified through the Gateway in Phase 12.7, and consumed by the
+five-source collector in Phase 12.8. No live object was created or changed by
+CEREV.
 
 The source JSONL rows are marked `canonical_simulation_fixture`. They are
 deterministic CEREV scenario data, not records from production operational
-systems. The transport artifacts are prepared for later UI registration only.
-Each relation name below comes from the earlier Phase 12.2 proposed mapping;
-that document says the namespace was not created or verified. These are
-therefore **proposed upload targets**, not confirmed live relations. The seven
-environment bindings remain unconfigured.
+systems. The relations below were manually registered through the Zetaris UI
+and the transport contents passed Phase 12.7 byte-integrity verification.
+Phase 12.8 additionally verifies them during each collector run before
+assembling the live package.
 
 ## Inventory and mapping
 
-| Logical source | Canonical JSONL records and source-native versions | Transport artifact / schema | Proposed Zetaris relation | Existing adapter/group |
+| Logical source | Canonical JSONL records and source-native versions | Transport artifact / schema | Verified Zetaris relation | Existing adapter/group |
 | --- | --- | --- | --- | --- |
-| `source-operational-cms` | `cms-policy-v1` (V1), `cms-policy-v2` (V2), `cms_policies.jsonl` (2) | `cms-policies.transport-v1.json` / `cerev.cms_policy.transport.v1` | `cerev_phase12_2_fixture.cms_policies` | `ZetarisOperationalCMSAdapter` / `policies` |
-| `source-operational-cms` | `cms-classification-event-a-v2` through `cms-classification-event-d-v2` (V2), `cms_classifications.jsonl` (4) | `cms-classifications.transport-v1.json` / `cerev.cms_classification.transport.v1` | `cerev_phase12_2_fixture.cms_classifications` | `ZetarisOperationalCMSAdapter` / `classifications` |
-| `source-maintenance-incident-registry` | `maintenance-event-a-2024-03-08`, `maintenance-event-b-2024-03-19`, `maintenance-event-c-2024-03-24`, `incident-event-d-2024-03-28` (native version unavailable/null), `maintenance_events.jsonl` (4) | `maintenance-events.transport-v1.json` / `cerev.maintenance_event.transport.v1` | `cerev_phase12_2_fixture.maintenance_events` | `ZetarisMaintenanceIncidentAdapter` / `events` |
-| `source-maintenance-incident-registry` | `notice-event-a-2024-03-06`, `notice-event-b-2024-03-17`, `notice-event-c-2024-03-22` (native version unavailable/null), `notice_records.jsonl` (3) | `notice-records.transport-v1.json` / `cerev.notice_record.transport.v1` | `cerev_phase12_2_fixture.notice_records` | `ZetarisMaintenanceIncidentAdapter` / `notice_records` |
-| `source-release-registry` | `creditcalc-v2.0-deployment` (2.0), `creditcalc-v2.1-deployment` (2.1), `releases.jsonl` (2) | `releases.transport-v1.json` / `cerev.adapter_deployment.transport.v1` | `cerev_phase12_2_fixture.releases` | `ZetarisReleaseRegistryAdapter` / `releases` |
-| `source-billing-calculation-and-action` | `credit-calculation-client-a-2024-03-2024-04-02` (CreditCalc 2.1), `billing_calculations.jsonl` (1) | `billing-calculations.transport-v1.json` / `cerev.billing_calculation.transport.v1` | `cerev_phase12_2_fixture.billing_calculations` | `ZetarisBillingActionAdapter` / `calculations` |
-| `source-billing-calculation-and-action` | `proposed-credit-client-a-2024-03-2024-04-02T0915Z` (native version unavailable/null), `proposed_actions.jsonl` (1) | `proposed-actions.transport-v1.json` / `cerev.proposed_action.transport.v1` | `cerev_phase12_2_fixture.proposed_actions` | `ZetarisBillingActionAdapter` / `proposed_actions` |
+| `source-operational-cms` | `cms-policy-v1` (V1), `cms-policy-v2` (V2), `cms_policies.jsonl` (2) | `cms-policies.transport-v1.json` / `cerev.cms_policy.transport.v1` | `cerev_phase124.cerev_main` | `ZetarisOperationalCMSAdapter` / `policies` |
+| `source-operational-cms` | `cms-classification-event-a-v2` through `cms-classification-event-d-v2` (V2), `cms_classifications.jsonl` (4) | `cms-classifications.transport-v1.json` / `cerev.cms_classification.transport.v1` | `cerev_phase124.cerev_main` | `ZetarisOperationalCMSAdapter` / `classifications` |
+| `source-maintenance-incident-registry` | `maintenance-event-a-2024-03-08`, `maintenance-event-b-2024-03-19`, `maintenance-event-c-2024-03-24`, `incident-event-d-2024-03-28` (native version unavailable/null), `maintenance_events.jsonl` (4) | `maintenance-events.transport-v1.json` / `cerev.maintenance_event.transport.v1` | `cerev_phase124.cerev_main` | `ZetarisMaintenanceIncidentAdapter` / `events` |
+| `source-maintenance-incident-registry` | `notice-event-a-2024-03-06`, `notice-event-b-2024-03-17`, `notice-event-c-2024-03-22` (native version unavailable/null), `notice_records.jsonl` (3) | `notice-records.transport-v1.json` / `cerev.notice_record.transport.v1` | `cerev_phase124.cerev_main` | `ZetarisMaintenanceIncidentAdapter` / `notice_records` |
+| `source-release-registry` | `creditcalc-v2.0-deployment` (2.0), `creditcalc-v2.1-deployment` (2.1), `releases.jsonl` (2) | `releases.transport-v1.json` / `cerev.adapter_deployment.transport.v1` | `cerev_phase124.cerev_releases` | `ZetarisReleaseRegistryAdapter` / `releases` |
+| `source-billing-calculation-and-action` | `credit-calculation-client-a-2024-03-2024-04-02` (CreditCalc 2.1), `billing_calculations.jsonl` (1) | `billing-calculations.transport-v1.json` / `cerev.billing_calculation.transport.v1` | `cerev_phase124.cerev_main` | `ZetarisBillingActionAdapter` / `calculations` |
+| `source-billing-calculation-and-action` | `proposed-credit-client-a-2024-03-2024-04-02T0915Z` (native version unavailable/null), `proposed_actions.jsonl` (1) | `proposed-actions.transport-v1.json` / `cerev.proposed_action.transport.v1` | `cerev_phase124.cerev_main` | `ZetarisBillingActionAdapter` / `proposed_actions` |
 
-The names come from the previous proposal table and the adapter groups from
-`cerev.zetaris.ZETARIS_ADAPTER_GROUPS`. They are not values filled into
-`.env.example` or the ignored local `.env`. The actual registered relation and
-file-source names must be verified in Zetaris before live configuration.
+The category-to-relation mappings are explicit in `.env.example` and the local
+ignored `.env`. All six non-release categories share `cerev_main`; this
+relation also contains the pre-existing service-agreement transport row. The
+contract adapter continues to query its separate verified contract relation.
+The release category uses `cerev_releases`.
 
 ## Transport builder
 
@@ -67,20 +69,43 @@ python scripts/build_zetaris_source_transports.py
 
 Each `.transport-v1.manifest.json` records record IDs and corresponding payload
 hashes, envelope hash, complete source JSONL hash, source fixture manifest
-hash, source identity, intended relation, and explicit
-`proposed_unregistered_unverified` status.
+hash, source identity, and intended relation. The status below reflects the
+Phase 12.7 live verification result; the generated local manifests remain
+unchanged.
+
+## Phase 12.7 live transport verification
+
+On 2026-10-26, `scripts/verify_zetaris_source_transports.py` queried the two
+UI-registered relations using the read-only Gateway client. Both returned HTTP
+200. `cerev_phase124.cerev_main` returned 16 rows: 15 Phase 12.6 transport
+records across six categories, plus the pre-existing `service_agreement`
+contract record. `cerev_phase124.cerev_releases` returned the two
+`adapter_deployment` records. All 17 Phase 12.6 records were present exactly
+once; the contract row was separately matched to the existing Phase 12.5
+contract artifact and was not counted among the 17.
+
+For all 17 new transport records, the verifier confirmed required envelope
+columns, schema version, logical source identity, source system, record ID,
+category, `canonical_simulation_fixture` dataset kind, source-native version
+metadata, strict JSON parsing, matching SHA-256 values, and exact UTF-8 payload
+byte equality against the original canonical JSONL record bytes. Expected and
+Gateway-returned payload hashes were equal for every record. See the verifier
+JSON output for the per-record expected and actual hashes.
+
+This verifies the registered transport records only. The seven Phase 12.6
+bindings have not been wired into the production evidence adapters, and this
+result does not establish complete five-source `EvidencePackage` acceptance,
+live policy evaluation, receipt generation, or replay. No global snapshot
+consistency is implied by the per-relation observation times or payload hashes.
 
 ## Remaining limitations
 
-The existing live adapter currently reconstructs only the contract category.
-These seven files are not yet consumed by the corresponding live adapter
-groups. Upload and registration must be done through the previously documented
-Zetaris UI workflow. After registration, each relation needs independent
-Gateway retrieval and category-specific validation before it can be configured
-for CEREV. Only after every required source group is validated can the normal
-five-source collector build a complete package. No global snapshot consistency
-is implied by the per-relation payload or envelope hashes.
+The existing live adapter still reconstructs only the contract category. The
+newly verified rows are not yet consumed by the corresponding live adapter
+groups. Integration and category-specific evidence validation remain future
+work. Only after every required source group is validated can the normal
+five-source collector build a complete package.
 
-Phase 12.5's live contract verification is unchanged. Phase 12.6 proves local
-artifact generation only; it does not establish live acceptance for any of the
-seven prepared bindings.
+Phase 12.5's live contract verification is unchanged. Phase 12.6 generated the
+local artifacts; Phase 12.7 verified all 17 live transport records; Phase 12.8
+documents five-source package and deterministic pipeline acceptance.
