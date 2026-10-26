@@ -1,0 +1,9 @@
+{
+  "dataset_kind": "canonical_simulation_fixture",
+  "filename": "contracts.json",
+  "logical_source_id": "source-contract-repository",
+  "record_category": "service_agreement",
+  "row_count": 1,
+  "sha256": "d10bf7f41d9a55e1f59708662d0ccf7df47979bb61ad768ba221dcb259d1b046",
+  "source_system": "contract_repository"
+}

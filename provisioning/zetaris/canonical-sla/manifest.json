@@ -1,0 +1,77 @@
+{
+  "dataset_kind": "canonical_simulation_fixture",
+  "logical_source_ids": [
+    "source-billing-calculation-and-action",
+    "source-contract-repository",
+    "source-maintenance-incident-registry",
+    "source-operational-cms",
+    "source-release-registry"
+  ],
+  "record_count": 18,
+  "relations": [
+    {
+      "filename": "contract_records.jsonl",
+      "record_category": "service_agreement",
+      "row_count": 1,
+      "sha256": "2ce03b0d87221e1e5a9e6de9f5ed224dc0d5deebef2f3049d015d698c095b8f7",
+      "source_id": "source-contract-repository",
+      "source_system": "contract_repository"
+    },
+    {
+      "filename": "cms_policies.jsonl",
+      "record_category": "cms_policy",
+      "row_count": 2,
+      "sha256": "586fb04cd5bcb96802a9a218652a6e7158e61b6a0a6b0df6685e1d3845976fb9",
+      "source_id": "source-operational-cms",
+      "source_system": "operational_cms"
+    },
+    {
+      "filename": "cms_classifications.jsonl",
+      "record_category": "cms_classification",
+      "row_count": 4,
+      "sha256": "452b7d53b1539f7f06408769f67d58dc93eea4341825d87dd1c5deb7603abc59",
+      "source_id": "source-operational-cms",
+      "source_system": "operational_cms"
+    },
+    {
+      "filename": "maintenance_events.jsonl",
+      "record_category": "maintenance_event",
+      "row_count": 4,
+      "sha256": "c37eb1391caf438d955aab358f73c0dcbe4feead8c8afb80ba7481a95b9d2af6",
+      "source_id": "source-maintenance-incident-registry",
+      "source_system": "maintenance_incident_registry"
+    },
+    {
+      "filename": "notice_records.jsonl",
+      "record_category": "notice_record",
+      "row_count": 3,
+      "sha256": "6f4fbef4834e43d1a67f5d75f94effe416427933cd3a6baf8aad65ffb8e7428a",
+      "source_id": "source-maintenance-incident-registry",
+      "source_system": "maintenance_incident_registry"
+    },
+    {
+      "filename": "releases.jsonl",
+      "record_category": "adapter_deployment",
+      "row_count": 2,
+      "sha256": "2bdfc6b6a0c6e26e40b49e051c608ba5bd6a71548e005cb0598876133a7cd54c",
+      "source_id": "source-release-registry",
+      "source_system": "release_registry"
+    },
+    {
+      "filename": "billing_calculations.jsonl",
+      "record_category": "billing_calculation",
+      "row_count": 1,
+      "sha256": "b160915145b959b0020314443a9c2a6da0d07358b34b06291774a07ec01a6935",
+      "source_id": "source-billing-calculation-and-action",
+      "source_system": "billing_calculation_and_action"
+    },
+    {
+      "filename": "proposed_actions.jsonl",
+      "record_category": "proposed_action",
+      "row_count": 1,
+      "sha256": "0e3afeb4dfc13cd23d19e99e002221ff9d03a2f5cb37c93bb1ef075a0c53ec73",
+      "source_id": "source-billing-calculation-and-action",
+      "source_system": "billing_calculation_and_action"
+    }
+  ]
+}

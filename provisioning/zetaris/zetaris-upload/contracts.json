@@ -1,0 +1,53 @@
+[
+  {
+    "contract_version": "V4",
+    "customer_id": "client-a",
+    "dataset_kind": "canonical_simulation_fixture",
+    "effective_period": {
+      "end_at": null,
+      "known_applicable_billing_period": "2024-03",
+      "start_at": null
+    },
+    "fixture_record_id": "contract-client-a-v4",
+    "logical_source_id": "source-contract-repository",
+    "monthly_service_fee_cents": 4800000,
+    "provenance": {
+      "observed_at": null,
+      "record_created_at": null,
+      "source_record_id": "contract-client-a-v4",
+      "source_system": "contract_repository",
+      "version_id": "V4"
+    },
+    "record_category": "service_agreement",
+    "record_type": "service_agreement",
+    "scheduled_maintenance_exclusion": {
+      "cms_classification_alone_establishes_compliance": false,
+      "conditions": [
+        {
+          "condition_id": "planned_in_cms_before_commencement",
+          "deadline_semantics": "strictly_before_event_start",
+          "kind": "cms_planned_recording",
+          "required": true
+        },
+        {
+          "condition_id": "written_notice_at_least_48_hours_before_commencement",
+          "kind": "written_notice_lead_time",
+          "minimum_hours": 48,
+          "required": true
+        }
+      ],
+      "requires_all_conditions": true
+    },
+    "sla": {
+      "availability_threshold_percent": "99.5",
+      "credit_rate_percent_per_interval": "10",
+      "interval_below_threshold_percentage_points": "0.1",
+      "partial_intervals_rounded_down": true
+    },
+    "source_native_created_at": null,
+    "source_native_observed_at": null,
+    "source_native_version": "V4",
+    "source_record_id": "contract-client-a-v4",
+    "source_system": "contract_repository"
+  }
+]
