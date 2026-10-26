@@ -1,0 +1,38 @@
+{
+  "source_system": "release_registry",
+  "dataset_id": "creditcalc-release-registry",
+  "releases": [
+    {
+      "source_record_id": "creditcalc-v2.0-deployment",
+      "adapter_name": "CreditCalc",
+      "adapter_version": "2.0",
+      "deployment_at": null,
+      "deployment_relation": "deployed_before_2024-03-15",
+      "notice_handling": "independently_checks_contractual_48_hour_notice_requirement",
+      "provenance": {
+        "source_system": "release_registry",
+        "source_record_id": "creditcalc-v2.0-deployment",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": "2.0"
+      },
+      "timestamp_notes": "The exact v2.0 deployment timestamp was not supplied."
+    },
+    {
+      "source_record_id": "creditcalc-v2.1-deployment",
+      "adapter_name": "CreditCalc",
+      "adapter_version": "2.1",
+      "deployment_date": "2024-03-15",
+      "deployment_at": null,
+      "notice_handling": "trusts_cms_classification_without_independent_contractual_notice_timestamp_check",
+      "provenance": {
+        "source_system": "release_registry",
+        "source_record_id": "creditcalc-v2.1-deployment",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": "2.1"
+      },
+      "timestamp_notes": "Only the deployment calendar date was supplied; time of day is unknown."
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "source_system": "billing_calculation_and_action",
+  "dataset_id": "billing-action-client-a-2024-03",
+  "calculations": [
+    {
+      "source_record_id": "credit-calculation-client-a-2024-03-2024-04-02",
+      "customer_id": "client-a",
+      "billing_period": {
+        "start_date": "2024-03-01",
+        "end_date": "2024-03-31",
+        "total_minutes": 44640
+      },
+      "calculated_at": "2024-04-02T09:14:00Z",
+      "adapter_name": "CreditCalc",
+      "adapter_version": "2.1",
+      "cms_classification_record_ids": [
+        "cms-classification-event-a-v2",
+        "cms-classification-event-b-v2",
+        "cms-classification-event-c-v2",
+        "cms-classification-event-d-v2"
+      ],
+      "credit_cents": 480000,
+      "provenance": {
+        "source_system": "billing_calculation_and_action",
+        "source_record_id": "credit-calculation-client-a-2024-03-2024-04-02",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": "CreditCalc 2.1"
+      }
+    }
+  ],
+  "proposed_actions": [
+    {
+      "source_record_id": "proposed-credit-client-a-2024-03-2024-04-02T0915Z",
+      "customer_id": "client-a",
+      "proposed_at": "2024-04-02T09:15:00Z",
+      "action_type": "issue_sla_credit",
+      "calculation_record_id": "credit-calculation-client-a-2024-03-2024-04-02",
+      "amount_cents": 480000,
+      "status": "proposed",
+      "provenance": {
+        "source_system": "billing_calculation_and_action",
+        "source_record_id": "proposed-credit-client-a-2024-03-2024-04-02T0915Z",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": null
+      },
+      "destination": "customer-account:client-a",
+      "transaction_reference": "invoice:2024-03",
+      "idempotency_key": "credit:client-a:2024-03:synthetic-v1"
+    }
+  ],
+  "scenario_brief_claims": {
+    "source_system": "phase_1_scenario_brief",
+    "source_record_id": "phase-1-brief-expected-calculation-claims",
+    "contract_strict_availability_percent": "99.0538",
+    "contract_strict_shortfall_percentage_points": "0.4462",
+    "note": "These stated approximate values are retained as supplied so their mismatch with the supplied downtime and uptime counts remains visible and testable."
+  }
+}

@@ -23,3 +23,11 @@ Notice timestamps are present for Events A, B, and C, but their delivery form is
 ## Scope
 
 This fixture is data only. It does not implement evidence validation, conflict detection, contract interpretation, policy gates, receipts, signing, permits, APIs, or external integrations. The tests compute arithmetic independently with `Decimal` and integer cents; they do not call a CEREV calculation engine.
+
+## Synthetic positive fixture
+
+[`synthetic_permit/`](synthetic_permit/) is a separate hypothetical fixture used by the local
+protected-execution demo. It supplies written notice exactly 48 hours before Events A–C, prior CMS
+classification timestamps, and a proposed amount matching the deterministic reference result.
+The remaining incident still counts as downtime, so its positive amount is $4,800. This fixture is
+synthetic and must not be read as a correction to or replacement for the canonical March scenario.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -172,3 +173,40 @@ def test_completeness_flag_rejects_unavailable_source_status(tmp_path: Path) -> 
             complete=True,
             collected_at=result.collected_at,
         )
+
+
+def test_sqlite_adapters_still_require_distinct_database_paths(tmp_path: Path) -> None:
+    adapters = make_adapters(tmp_path)
+    duplicate_path = adapters[0].database_path
+    duplicated = (*adapters[:-1], type(adapters[-1])(duplicate_path))
+
+    with pytest.raises(ValueError, match="unique database file"):
+        EvidenceCollector(duplicated)
+
+
+def test_non_sqlite_source_adapter_is_not_required_to_have_database_path(tmp_path: Path) -> None:
+    adapters = make_adapters(tmp_path)
+    sqlite_adapter = adapters[0]
+
+    class NonSQLiteAdapter:
+        identity = sqlite_adapter.identity
+        connection_metadata = {
+            "backend": "remote_contract_test",
+            "endpoint": "test://source",
+            "simulated": True,
+        }
+
+        def retrieve(self):
+            retrieval = sqlite_adapter.retrieve()
+            return replace(
+                retrieval,
+                connection_metadata=self.connection_metadata,
+                simulated=True,
+            )
+
+    mixed = (NonSQLiteAdapter(), *adapters[1:])
+    collection = EvidenceCollector(mixed).collect()
+
+    assert collection.complete
+    assert collection.package is not None
+    assert collection.source_statuses[0].connection_metadata["backend"] == "remote_contract_test"

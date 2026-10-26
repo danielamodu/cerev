@@ -380,6 +380,17 @@ class EvidenceCollector:
         }
         if len(simulation_modes) != 1:
             raise ValueError("EvidenceCollector cannot mix simulation and live source adapters.")
+        sqlite_paths: list[Path] = []
+        for adapter in adapters:
+            metadata = adapter.connection_metadata
+            if metadata.get("backend") != "sqlite":
+                continue
+            database_path = metadata.get("database_path")
+            if not isinstance(database_path, (str, Path)) or not str(database_path):
+                raise ValueError("A SQLite source adapter must identify its database_path.")
+            sqlite_paths.append(Path(database_path).resolve())
+        if len(set(sqlite_paths)) != len(sqlite_paths):
+            raise ValueError("Every SQLite source adapter must use a unique database file.")
         self.adapters = tuple(adapters)
         self.simulated = simulation_modes.pop()
 
@@ -422,13 +433,12 @@ class EvidenceCollector:
         try:
             with tempfile.TemporaryDirectory(prefix="cerev-source-collect-") as temporary:
                 staging = Path(temporary)
+                fixture_names = {
+                    adapter_type.source_id: adapter_type.fixture_filename
+                    for adapter_type in SOURCE_ADAPTER_TYPES
+                }
                 for retrieval in snapshots:
-                    definition = next(
-                        item
-                        for item in SOURCE_ADAPTER_TYPES
-                        if item.source_id == retrieval.identity.source_id
-                    )
-                    path = staging / definition.fixture_filename
+                    path = staging / fixture_names[retrieval.identity.source_id]
                     path.write_bytes(canonical_json_bytes(retrieval.dataset))
                 package = load_canonical_evidence_package(
                     staging,

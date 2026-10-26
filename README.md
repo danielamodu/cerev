@@ -43,9 +43,32 @@ ruff check .
 ruff format --check .
 ```
 
-Run the local protected-execution demonstration with `cerev-protected-demo` or `python -m cerev.demo`.
+For the local sample demonstration, copy `.env.example` to `.env` or set
+`CEREV_EVIDENCE_MODE=sample` in the invoking environment, then run `cerev-protected-demo` or
+`python -m cerev.demo`. It collects the unchanged canonical `BLOCK` case and the separate
+synthetic `PERMIT` fixture through the normal SQLite collector. The output identifies the
+simulation and is not a production evaluation. `CEREV_EVIDENCE_MODE=zetaris` never falls back to
+sample data; the protected demo stops because its positive scenario is synthetic.
 
 Runtime dependencies are `cryptography` for Ed25519 and `python-dotenv` for explicit local `.env` loading by the evidence-provider factory. Existing process environment variables take precedence. Use [`.env.example`](.env.example) as a local configuration reference; `.env` is ignored by Git. Never put credentials or private keys in the repository.
+
+## Phase 10 security and correctness limits
+
+- The Ed25519 signing key used by the demo currently lives in memory. Production key custody,
+  rotation, and revocation are not implemented.
+- The protected execution boundary enforces permit checks, nonce uniqueness, and state
+  transitions in the application and local SQLite store. It is not process isolation against
+  hostile code with access to the same process or files.
+- The Challenger has a separate role and interface, but is not independently isolated or
+  independently trustworthy.
+- Conflict detection covers specific known rules and source relationships. It is not a
+  general-purpose contradiction detector.
+- Replay from a retained receipt and its evidence snapshot is deterministic. Fresh issuance is
+  not guaranteed to reproduce the same output when current external or model-backed role outputs
+  differ.
+- The caller is responsible for retaining the receipt, evidence snapshot, and signed permit
+  needed for audit and replay. The execution database retains execution state and action/permit
+  references; it does not persist the full receipt or evidence snapshot.
 
 ## Module map
 
@@ -64,7 +87,7 @@ Runtime dependencies are `cryptography` for Ed25519 and `python-dotenv` for expl
 - `cerev/replay.py`: replay from retained evidence snapshots and result comparison.
 - `cerev/permit.py`: short-lived Ed25519 permits bound to a verified decision and exact action.
 - `cerev/adapter.py`: permit verification, atomic SQLite nonce reservation, execution state, and simulated target.
-- `cerev/demo.py`: local hypothetical permit execution demonstration.
+- `cerev/demo.py`: explicit sample-only demonstration collecting canonical `BLOCK` and synthetic `PERMIT` cases through the configured evidence provider and source adapters.
 - `cerev/config.py`, `cerev/v21_simulation.py`, `cerev/validation.py`, `cerev/nonce.py`, and `cerev/retrieval_direct.py`: reserved modules for future phases.
 
 The `fixture/` directory contains the Phase 1 datasets and guide. The Phase 8 adapter API and simulation limitations are documented in [docs/independent-evidence-sources.md](docs/independent-evidence-sources.md). See [docs/conflict-detection-and-policy.md](docs/conflict-detection-and-policy.md) for Phase 4 behavior, [docs/decision-receipts-and-replay.md](docs/decision-receipts-and-replay.md) for Phase 5, [docs/execution-permits.md](docs/execution-permits.md) for Phase 6, and [docs/protected-execution.md](docs/protected-execution.md) for Phase 7 guarantees and limitations.

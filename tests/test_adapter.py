@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 import sys
@@ -14,6 +15,7 @@ import pytest
 from test_permit import NOW, permit_scenario
 
 from cerev.adapter import (
+    ActionMismatchError,
     AuthorizationError,
     ExecutionError,
     ExecutionInProgressError,
@@ -26,9 +28,21 @@ from cerev.adapter import (
     SQLiteExecutionStore,
     TargetExecutionError,
 )
-from cerev.permit import generate_signing_key, permit_action_from_receipt, public_key_id
+from cerev.permit import (
+    generate_signing_key,
+    issue_execution_permit,
+    permit_action_from_receipt,
+    public_key_id,
+    verify_execution_permit,
+)
 from cerev.policy import POLICY_VERSION
-from cerev.receipt import DecisionReceipt, compute_receipt_hash, snapshot_from_receipt
+from cerev.receipt import (
+    DecisionReceipt,
+    canonical_json_bytes,
+    compute_receipt_hash,
+    snapshot_from_receipt,
+    verify_receipt,
+)
 
 
 @pytest.fixture
@@ -168,6 +182,86 @@ def test_block_and_abstain_receipts_cannot_execute(execution_context):
     with pytest.raises(AuthorizationError):
         invoke(execution_context, receipt=abstain)
     assert target.call_count == 0
+
+
+def test_substituted_independently_valid_permit_receipt_is_rejected(execution_context):
+    _, _, signer, action, permit, _, target, adapter = execution_context
+    other_receipt = permit_scenario(NOW + timedelta(seconds=1), action_tag="other")
+    other_snapshot = snapshot_from_receipt(other_receipt)
+    other_permit = issue_execution_permit(
+        receipt=other_receipt,
+        retained_evidence_snapshot=other_snapshot,
+        action=permit_action_from_receipt(other_receipt),
+        private_key=signer,
+        accepted_policy_versions={POLICY_VERSION},
+        issued_at=NOW + timedelta(seconds=1),
+    )
+
+    assert other_receipt.disposition == "PERMIT"
+    assert verify_receipt(other_receipt)
+    assert other_permit.receipt_hash == other_receipt.receipt_hash
+    assert other_receipt.receipt_id != execution_context[0].receipt_id
+    assert other_receipt.receipt_hash != execution_context[0].receipt_hash
+    with pytest.raises(AuthorizationError):
+        adapter.execute(
+            action,
+            permit,
+            receipt=other_receipt,
+            retained_evidence_snapshot=other_snapshot,
+            now=NOW + timedelta(minutes=1),
+        )
+    assert target.call_count == 0
+
+
+def test_different_validly_signed_permit_with_cloned_nonce_is_rejected(execution_context):
+    receipt, snapshot, signer, action, permit, _, target, adapter = execution_context
+    adapter.execute(
+        action,
+        permit,
+        receipt=receipt,
+        retained_evidence_snapshot=snapshot,
+        now=NOW + timedelta(minutes=1),
+    )
+    second_receipt = permit_scenario(NOW + timedelta(seconds=1))
+    second_snapshot = snapshot_from_receipt(second_receipt)
+    second_permit = issue_execution_permit(
+        receipt=second_receipt,
+        retained_evidence_snapshot=second_snapshot,
+        action=permit_action_from_receipt(second_receipt),
+        private_key=signer,
+        accepted_policy_versions={POLICY_VERSION},
+        issued_at=NOW + timedelta(seconds=1),
+    )
+    cloned_unsigned = replace(second_permit, nonce=permit.nonce, signature="")
+    cloned_nonce_permit = replace(
+        cloned_unsigned,
+        signature=base64.urlsafe_b64encode(
+            signer.sign(canonical_json_bytes(cloned_unsigned.signing_payload()))
+        )
+        .decode("ascii")
+        .rstrip("="),
+    )
+    verification = verify_execution_permit(
+        cloned_nonce_permit,
+        trusted_keys={public_key_id(signer.public_key()): signer.public_key()},
+        expected_receipt=second_receipt,
+        retained_evidence_snapshot=second_snapshot,
+        accepted_policy_versions={POLICY_VERSION},
+        now=NOW + timedelta(minutes=1),
+    )
+    assert verification.valid
+    assert cloned_nonce_permit.permit_id != permit.permit_id
+    assert cloned_nonce_permit.nonce == permit.nonce
+
+    with pytest.raises(ActionMismatchError, match="changed permit or action"):
+        adapter.execute(
+            action,
+            cloned_nonce_permit,
+            receipt=second_receipt,
+            retained_evidence_snapshot=second_snapshot,
+            now=NOW + timedelta(minutes=1),
+        )
+    assert target.call_count == 1
 
 
 def test_same_permit_with_altered_request_after_consumption_is_rejected(execution_context):

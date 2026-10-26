@@ -1,0 +1,54 @@
+{
+  "source_system": "contract_repository",
+  "dataset_id": "contract-repository-client-a",
+  "records": [
+    {
+      "source_record_id": "contract-client-a-v4",
+      "record_type": "service_agreement",
+      "customer_id": "client-a",
+      "contract_version": "V4",
+      "monthly_service_fee_cents": 4800000,
+      "sla": {
+        "availability_threshold_percent": "99.5",
+        "credit_rate_percent_per_interval": "10",
+        "interval_below_threshold_percentage_points": "0.1",
+        "partial_intervals_rounded_down": true
+      },
+      "scheduled_maintenance_exclusion": {
+        "requires_all_conditions": true,
+        "conditions": [
+          {
+            "condition_id": "planned_in_cms_before_commencement",
+            "kind": "cms_planned_recording",
+            "required": true,
+            "deadline_semantics": "strictly_before_event_start"
+          },
+          {
+            "condition_id": "written_notice_at_least_48_hours_before_commencement",
+            "kind": "written_notice_lead_time",
+            "minimum_hours": 48,
+            "required": true
+          }
+        ],
+        "cms_classification_alone_establishes_compliance": false
+      },
+      "effective_period": {
+        "start_at": null,
+        "end_at": null,
+        "known_applicable_billing_period": "2024-03"
+      },
+      "provenance": {
+        "source_system": "contract_repository",
+        "source_record_id": "contract-client-a-v4",
+        "record_created_at": null,
+        "observed_at": null,
+        "version_id": "V4"
+      }
+    }
+  ],
+  "timestamp_notes": [
+    "The source creation timestamp was not provided.",
+    "No retrieval or observation timestamp was provided.",
+    "V4 is identified as the governing contract for this scenario; its exact legal effective timestamps were not supplied."
+  ]
+}

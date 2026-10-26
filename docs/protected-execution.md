@@ -32,8 +32,35 @@ The transitions and timestamps are persisted. A process startup checks for unfin
 
 Known pre-effect target rejection is `FAILED`; it remains consumed and cannot be retried with that permit. Unknown target outcome is `RECONCILIATION_REQUIRED`. If the database cannot durably record a final state, the operation remains unfinished and startup recovery quarantines or reconciles it from the local target's idempotency record.
 
-## Demonstration and limits
+## Demonstration, receipt retention, and limits
 
-After installing the project, run `cerev-protected-demo` or `python -m cerev.demo`. It creates a temporary, fully evidenced hypothetical `PERMIT` scenario from copies of the canonical source records, executes once, returns the original result for a duplicate, rejects an altered action, and rejects the canonical `BLOCK` proposal. It does not modify repository fixtures. A database path can be supplied through the callable `cerev.demo.run_demo(database_path=...)`.
+Set `CEREV_EVIDENCE_MODE=sample` in `.env` or the invoking environment before running
+`cerev-protected-demo` or `python -m cerev.demo`. The demo uses the configured sample provider for
+the unchanged canonical `BLOCK` case and seeds separate local SQLite source stores for the
+hypothetical synthetic `PERMIT` fixture. Both use the normal collector. Its JSON output identifies
+sample mode, marks every source as simulated, and says that the result is not a production
+evaluation. `CEREV_EVIDENCE_MODE=zetaris` never falls back to sample data; the protected demo stops
+because its positive scenario is synthetic. The evidence-provider factory loads `.env` when
+present, with process environment values taking precedence.
 
-SQLite gives this local target an atomic uniqueness and result store, but the design does not establish exactly-once behavior for an external side effect. A real target needs a transactional operation or equivalent target-side idempotency and reconciliation protocol. The SQLite file and trusted-key configuration must be protected by the host application's filesystem and access controls; this Python module is not process isolation against hostile code with local file access. There are no payment rails, external financial systems, multi-host deployment guarantees, revocation controls, or operator dashboard. A process death in an ambiguous interval is intentionally fail-closed, even when that requires manual review.
+The caller owns retention of the complete decision receipt, retained evidence snapshot, and signed
+permit needed for later audit or replay. `SQLiteExecutionStore` does not persist the full receipt
+or evidence snapshot. Its execution row retains the permit ID, action ID and canonical action,
+action fingerprint, idempotency key, execution state, timestamps, and result/error references; the
+target operation retains the permit ID and resulting operation details. The execution record does
+not itself preserve the receipt contents or receipt hash, so callers must retain those artifacts
+separately.
+
+The Ed25519 key used by the demo lives in memory. Production key custody, rotation, and revocation
+are not implemented. SQLite gives this local target an atomic uniqueness and result store, but the
+design does not establish exactly-once behavior for an external side effect. A real target needs a
+transactional operation or equivalent target-side idempotency and reconciliation protocol. The
+SQLite file and trusted-key configuration must be protected by the host application's filesystem
+and access controls; this Python module is not process isolation against hostile code with local
+file access. The Challenger is role-separated by interface but is not independently isolated or
+independently trustworthy. Conflict detection covers known rules and source relationships; it is
+not a universal contradiction detector. Replay from retained receipt evidence is deterministic;
+fresh issuance may differ when current external or model-backed role outputs differ. There are no
+payment rails, external financial systems, multi-host deployment guarantees, or operator
+dashboard. A process death in an ambiguous interval is intentionally fail-closed, even when that
+requires manual review.

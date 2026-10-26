@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -335,15 +335,14 @@ def _critical_evidence_check(
         delivery_form = notice.payload.get("delivery_form")
         if not isinstance(delivery_form, str) or delivery_form.casefold() != "written":
             return False, f"Written delivery proof is absent for maintenance event {event_id}."
-        notice_at = _aware_instant(notice.payload.get("notice_at"))
-        start_at = _aware_instant(event.get("start_at"))
+        notice_at = _aware_instant(notice.payload.get("notice_at"), "notice_at")
+        start_at = _aware_instant(event.get("start_at"), "start_at")
         if notice_at is None or start_at is None:
             return False, f"Notice or event timestamp is unverifiable for {event_id}."
-        elapsed_seconds = (start_at - notice_at).total_seconds()
-        if elapsed_seconds < minimum_hours * 3600:
+        if start_at - notice_at < timedelta(hours=minimum_hours):
             return False, f"Contractual notice lead time is insufficient for {event_id}."
         # Classification must have a verified instant strictly before the event start.
-        recorded = _aware_instant(cms.payload.get("classified_at"))
+        recorded = _aware_instant(cms.payload.get("classified_at"), "classified_at")
         if recorded is None or recorded >= start_at:
             return False, f"Prior planned classification is unverified for {event_id}."
     return True, "Required contractual, classification, notice, and delivery evidence is present."
@@ -370,13 +369,15 @@ def _unique_records(records: tuple[EvidenceRecord, ...], record_type: str) -> li
     return list(by_id.values())
 
 
-def _aware_instant(value: Any) -> datetime | None:
-    if not isinstance(value, str):
+def _aware_instant(value: Any, field: str) -> datetime | None:
+    if value is None:
         return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a timezone-aware ISO timestamp.")
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
+    except ValueError as error:
+        raise ValueError(f"{field} is malformed: {value!r}.") from error
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        return None
+        raise ValueError(f"{field} must include a timezone offset.")
     return parsed.astimezone(UTC)

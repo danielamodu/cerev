@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from cerev.conflicts import (
     Conflict,
@@ -332,6 +335,62 @@ def test_fully_evidenced_hypothetical_action_can_be_permitted() -> None:
     decision = evaluate_policy(action, package, reference, report)
 
     assert decision.disposition == Disposition.PERMIT
+
+
+def test_notice_47_hours_59_minutes_before_event_is_not_sufficient() -> None:
+    package = canonical_package()
+    notice = record_by_source_id(package, "notice-event-a-2024-03-06")
+    start = record_by_source_id(package, "maintenance-event-a-2024-03-08").payload["start_at"]
+    event_start = datetime.fromisoformat(start.replace("Z", "+00:00"))
+    package = replace(
+        package,
+        records=replace_record_payload(
+            package.records,
+            notice.source_record_id,
+            notice_at=(event_start - timedelta(hours=47, minutes=59)).isoformat(),
+            delivery_form="written",
+        ),
+    )
+    action = proposed_action_from_package(package)
+    assert action is not None
+    action = replace(action, amount_cents=package.reference_calculation.credit_cents)
+
+    decision = evaluate_policy(
+        action, package, package.reference_calculation, no_conflicts(package)
+    )
+
+    assert decision.disposition != Disposition.PERMIT
+    assert (
+        next(
+            check for check in decision.checks if check.condition == "required_evidence_sufficient"
+        ).passed
+        is False
+    )
+
+
+def test_policy_notice_recheck_uses_exact_duration_comparison() -> None:
+    source = inspect.getsource(__import__("cerev.policy", fromlist=["_critical_evidence_check"]))
+
+    assert "total_seconds" not in source
+    assert "timedelta(hours=minimum_hours)" in source
+
+
+def test_malformed_notice_timestamp_raises_clear_validation_error() -> None:
+    package = canonical_package()
+    package = replace(
+        package,
+        records=replace_record_payload(
+            package.records,
+            "notice-event-a-2024-03-06",
+            notice_at="not-a-timestamp",
+            delivery_form="written",
+        ),
+    )
+    action = proposed_action_from_package(package)
+    assert action is not None
+
+    with pytest.raises(ValueError, match="notice_at is malformed"):
+        evaluate_policy(action, package, package.reference_calculation, no_conflicts(package))
 
 
 def test_detector_output_alone_cannot_grant_permission() -> None:

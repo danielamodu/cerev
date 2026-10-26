@@ -589,7 +589,9 @@ def test_provider_loads_dotenv_and_preserves_process_environment_precedence(
     assert len(tuple(store_dir.glob("*.sqlite3"))) == 5
 
 
-def test_protected_sample_demo_keeps_synthetic_permit_path() -> None:
+def test_protected_sample_demo_keeps_synthetic_permit_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("CEREV_EVIDENCE_MODE", "sample")
+    monkeypatch.setenv("CEREV_SAMPLE_STORE_DIR", str(tmp_path / "sample-sources"))
     result = run_demo()
 
     assert result["canonical_block_rejected"] is True

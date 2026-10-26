@@ -49,7 +49,9 @@ def _replace_payload(
     return tuple(result)
 
 
-def permit_scenario() -> DecisionReceipt:
+def permit_scenario(
+    created_at: datetime = NOW, *, action_tag: str | None = None
+) -> DecisionReceipt:
     """Create a fully evidenced hypothetical PERMIT from canonical source records."""
     package = load_canonical_evidence_package(FIXTURE_DIR)
     inputs = load_canonical_inputs(FIXTURE_DIR)
@@ -95,13 +97,20 @@ def permit_scenario() -> DecisionReceipt:
         "credit-calculation-client-a-2024-03-2024-04-02",
         credit_cents=reference.credit_cents,
     )
+    destination = "customer-account:client-a"
+    transaction_reference = "invoice:2024-03"
+    idempotency_key = "credit:client-a:2024-03:v1"
+    if action_tag is not None:
+        destination += f":{action_tag}"
+        transaction_reference += f":{action_tag}"
+        idempotency_key = f"credit:client-a:2024-03:{action_tag}"
     records = _replace_payload(
         records,
         "proposed-credit-client-a-2024-03-2024-04-02T0915Z",
         amount_cents=reference.credit_cents,
-        destination="customer-account:client-a",
-        transaction_reference="invoice:2024-03",
-        idempotency_key="credit:client-a:2024-03:v1",
+        destination=destination,
+        transaction_reference=transaction_reference,
+        idempotency_key=idempotency_key,
     )
     unavailable = tuple(
         f"{record.evidence_id}:{item.field_path}"
@@ -113,7 +122,7 @@ def permit_scenario() -> DecisionReceipt:
     updated = replace(
         package, records=records, reference_calculation=reference, collection=collection
     )
-    evaluated = evaluate_and_create_receipt(updated, created_at=NOW)
+    evaluated = evaluate_and_create_receipt(updated, created_at=created_at)
     assert evaluated.receipt.disposition == "PERMIT"
     return evaluated.receipt
 
