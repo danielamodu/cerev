@@ -2,11 +2,12 @@
 
 ## Status
 
-This document records a live, read-only catalog inspection and the proposed
+This document records the live, read-only catalog inspection and original
 mapping of the canonical SLA fixture. No Zetaris object or data was created,
-changed, or removed. The eight canonical relations are not present in the
-currently visible catalog, so the live CEREV collector cannot yet create the
-canonical package. This is not Phase 12 live acceptance.
+changed, or removed by CEREV. The contract record is now registered as a
+versioned transport relation and is integrated with the contract adapter;
+the other seven logical relations remain separate and are not yet accepted for
+live collection. This is not full Phase 12 live acceptance.
 
 The canonical JSON files are deterministic scenario fixtures. Loading them to
 Zetaris would produce **canonical simulation evidence**, not independent
@@ -206,9 +207,11 @@ delivery proof, and the proposed 480000-cent credit. Local regression behavior
 remains a reference result of 1920000 cents and `BLOCK` for the proposed
 480000-cent amount. The separate positive `PERMIT` fixture is untouched.
 
-Live acceptance is **not met**: no canonical evidence relations exist in the
-visible catalog, no records were provisioned, no live evidence package or
-receipt was produced, and no live replay or canonical decision is claimed.
+Full live acceptance is **not met**: the contract transport relation is
+registered and one live contract record has passed CEREV evidence validation,
+but the other seven relations have not passed live validation. No complete live
+evidence package or receipt was produced, and no live replay or canonical
+decision is claimed.
 
 ## References
 

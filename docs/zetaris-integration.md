@@ -8,7 +8,7 @@
 | Managed Gateway proxy transport | Implemented separately and mock tested |
 | Live Gateway connectivity | Verified with API-key bearer authentication and HTTP 200 for `SELECT 1` |
 | Live unrelated sample queries | Five rows retrieved from `NY_TAXI.trips` and `TPCDS_DB.catalog_sales` |
-| CEREV live canonical evidence package | Not accepted; all eight configured SLA relation names remain unset |
+| CEREV live canonical evidence package | Not accepted; only the contract transport relation is verified, other seven relation bindings remain unverified |
 
 The current Gateway contract, implementation, live results, and blockers are in
 [`zetaris-gateway-proxy.md`](zetaris-gateway-proxy.md). The remaining sections
@@ -144,7 +144,12 @@ positive `PERMIT` examples through those SQLite source adapters.
 
 For Zetaris, configure `CEREV_EVIDENCE_MODE=zetaris`, Gateway origin
 `ZETARIS_BASE_URL`, direct REST URL `ZETARIS_REST_URL`, numeric
-`ZETARIS_ORG_ID`, `ZETARIS_API_KEY`, and all eight relation names.
+`ZETARIS_ORG_ID`, `ZETARIS_API_KEY`, and all eight relation names. The
+contract relation is now configured as
+`cerev_contract_records_v1.cerev_contract_records_v1`; the other seven
+relations remain unverified. See
+[`zetaris-contract-transport.md`](zetaris-contract-transport.md) for the
+contract envelope adapter and one-source live check.
 `CEREV_ZETARIS_ROWS_PATH` defaults to the documented `data` / `headers` response
 contract; override it only if the provisioned cluster documents an alternate
 object-row response. The API key is a user-provided bearer credential; keep it
@@ -167,11 +172,13 @@ consumed by the Coordinator. Local fixture workflows can continue constructing
 
 ## Verification record and limitations
 
-Unit tests mock HTTP calls and the Zetaris query client. For adapter contract
-tests, mocked rows are taken from the checked-in canonical evidence fixtures;
+Unit tests mock HTTP calls and the Zetaris query client. Contract adapter tests
+use the generated v1 transport envelope; the other source adapter rows are
+based on the checked-in canonical evidence fixtures.
 these tests prove normalization and failure handling, not canonical live
 retrieval. The Gateway transport's actual connectivity and unrelated sample
-query rows were verified; the eight SLA relation bindings are still unset.
+query rows were verified. The contract transport relation has also passed the
+one-source live check; the other seven SLA relation bindings remain unverified.
 The sample regression and protected demo use SQLite simulation data.
 
 To finish live verification, configure a reachable existing cluster and identify

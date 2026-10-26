@@ -21,10 +21,13 @@ row was an array aligned with its header names. For example, the first taxi row
 included `trip_id=1` and `total_fare=95.0`, and the first catalog sales row
 included `cs_sold_date_sk=2450815` and `cs_sales_price=42.99`.
 
-Those sample datasets are not evidence for CEREV's SLA scenario. All eight
-canonical relation settings are currently unset in the local `.env`, so the
-live collector cannot produce a canonical `EvidencePackage`; no live BLOCK or
-receipt replay result is claimed. Phase 12 live acceptance remains pending.
+Those sample datasets are not evidence for CEREV's SLA scenario. The contract
+source has since been registered as
+`cerev_contract_records_v1.cerev_contract_records_v1`; the other seven relation
+bindings remain unverified. The complete live collector therefore cannot yet
+produce a canonical `EvidencePackage`, and no live BLOCK or receipt replay
+result is claimed. The contract transport details are in
+[`zetaris-contract-transport.md`](zetaris-contract-transport.md).
 
 ## Endpoints and configuration
 
@@ -122,11 +125,13 @@ Gateway provides evidence retrieval only.
 
 ## Canonical relation availability
 
-The live environment currently has no values for these bindings:
+The contract relation is configured and independently verified by the
+Phase 12.5 transport check. The other seven relation bindings remain unset or
+unverified:
 
 | Logical evidence relation | Environment setting | Status |
 | --- | --- | --- |
-| Contract records | `CEREV_ZETARIS_CONTRACT_RECORDS_TABLE` | Not configured; existence, queryability, identity mapping, and schema not verified |
+| Contract records | `CEREV_ZETARIS_CONTRACT_RECORDS_TABLE` | `cerev_contract_records_v1.cerev_contract_records_v1`; v1 envelope and one reconstructed evidence record verified |
 | CMS policies | `CEREV_ZETARIS_CMS_POLICIES_TABLE` | Not configured; existence, queryability, identity mapping, and schema not verified |
 | CMS classifications | `CEREV_ZETARIS_CMS_CLASSIFICATIONS_TABLE` | Not configured; existence, queryability, identity mapping, and schema not verified |
 | Maintenance events | `CEREV_ZETARIS_MAINTENANCE_EVENTS_TABLE` | Not configured; existence, queryability, identity mapping, and schema not verified |
@@ -137,14 +142,13 @@ The live environment currently has no values for these bindings:
 
 A read-only `SHOW LIGHTNING DATABASES` request returned HTTP 200 with
 `NY_TAXI` and `TPCDS_DB`. Those are the two smoke-test databases, not proof of
-the eight CEREV evidence relations. Since no canonical relation names are
-configured, the catalog check did not validate their existence, identity
-mapping, queryability, or schema. The two sample datasets are not substitutes
-for the eight bindings above.
+the other seven CEREV evidence relations. The table above distinguishes the
+independently verified contract relation from remaining bindings. The two
+sample datasets are not substitutes for CEREV evidence.
 
-To complete live acceptance, configure the actual qualified relation names and
-their `source_record_id` identity columns, then run the normal collector in
-explicit `zetaris` mode. Each relation must return exactly the canonical
+To complete live acceptance, configure and validate the seven remaining
+qualified relation names and their `source_record_id` identity columns, then
+run the normal collector in explicit `zetaris` mode. Each relation must return exactly the canonical
 record group with the expected evidence fields. A missing, malformed, or
 incomplete relation leaves the collection incomplete with no package.
 
