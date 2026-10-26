@@ -1,0 +1,50 @@
+{
+  "dataset_kind": "canonical_simulation_fixture",
+  "envelope_filename": "cms-classifications.transport-v1.json",
+  "envelope_sha256": "ffab5c79d80accf0d702b315407938d13b110a1e3e2a1d20116e6ca79012262c",
+  "existing_adapter": "ZetarisOperationalCMSAdapter",
+  "intended_zetaris_relation": "cerev_phase12_2_fixture.cms_classifications",
+  "logical_source_id": "source-operational-cms",
+  "payload_sha256": [
+    {
+      "payload_sha256": "7cda15f9ffb249f403bb30c0876c71ab3c7f2e3ed5b56b4676e0321a8b684af5",
+      "source_record_id": "cms-classification-event-a-v2"
+    },
+    {
+      "payload_sha256": "3c9920ddbc4ca3266d44418e7c243f00d06108f208e2797bb21d3036f395bbfc",
+      "source_record_id": "cms-classification-event-b-v2"
+    },
+    {
+      "payload_sha256": "c1d7a24c54e1752e8a2531e853d033525a3fba35a4b0eb6819a595a974808bbe",
+      "source_record_id": "cms-classification-event-c-v2"
+    },
+    {
+      "payload_sha256": "9dd30c8f398fce4db668c62be16b2495fc03e79de60492b844398dfd63786ca1",
+      "source_record_id": "cms-classification-event-d-v2"
+    }
+  ],
+  "record_category": "cms_classification",
+  "record_count": 4,
+  "record_group": "classifications",
+  "relation_status": "proposed_unregistered_unverified",
+  "source_fixture_identity": {
+    "logical_source_id": "source-operational-cms",
+    "record_category": "cms_classification",
+    "record_count": 4,
+    "source_file_sha256": "452b7d53b1539f7f06408769f67d58dc93eea4341825d87dd1c5deb7603abc59",
+    "source_filename": "cms_classifications.jsonl",
+    "source_fixture_manifest_sha256": "cc8712c7d568159c9cbf1fb282c480d31d7f8f993a795731ca0ce7131ff7f49e",
+    "source_system": "operational_cms"
+  },
+  "source_native_versions": [
+    "V2"
+  ],
+  "source_record_ids": [
+    "cms-classification-event-a-v2",
+    "cms-classification-event-b-v2",
+    "cms-classification-event-c-v2",
+    "cms-classification-event-d-v2"
+  ],
+  "source_system": "operational_cms",
+  "transport_schema_version": "cerev.cms_classification.transport.v1"
+}

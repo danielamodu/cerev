@@ -1,0 +1,41 @@
+{
+  "dataset_kind": "canonical_simulation_fixture",
+  "envelope_filename": "cms-policies.transport-v1.json",
+  "envelope_sha256": "7515d463b8d4bd39956144c708b1d50ac6266de1d82bca5cee52c824cfe61675",
+  "existing_adapter": "ZetarisOperationalCMSAdapter",
+  "intended_zetaris_relation": "cerev_phase12_2_fixture.cms_policies",
+  "logical_source_id": "source-operational-cms",
+  "payload_sha256": [
+    {
+      "payload_sha256": "c2f390e17a843dbe9c135b6cb2711d0006802841cb1b666d768c554133eac833",
+      "source_record_id": "cms-policy-v1"
+    },
+    {
+      "payload_sha256": "d96126e1cdbdd166e672be3823a3af3bb725401c8d73f4126b4d2e61cbf8ab24",
+      "source_record_id": "cms-policy-v2"
+    }
+  ],
+  "record_category": "cms_policy",
+  "record_count": 2,
+  "record_group": "policies",
+  "relation_status": "proposed_unregistered_unverified",
+  "source_fixture_identity": {
+    "logical_source_id": "source-operational-cms",
+    "record_category": "cms_policy",
+    "record_count": 2,
+    "source_file_sha256": "586fb04cd5bcb96802a9a218652a6e7158e61b6a0a6b0df6685e1d3845976fb9",
+    "source_filename": "cms_policies.jsonl",
+    "source_fixture_manifest_sha256": "cc8712c7d568159c9cbf1fb282c480d31d7f8f993a795731ca0ce7131ff7f49e",
+    "source_system": "operational_cms"
+  },
+  "source_native_versions": [
+    "V1",
+    "V2"
+  ],
+  "source_record_ids": [
+    "cms-policy-v1",
+    "cms-policy-v2"
+  ],
+  "source_system": "operational_cms",
+  "transport_schema_version": "cerev.cms_policy.transport.v1"
+}

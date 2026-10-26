@@ -1,0 +1,46 @@
+[
+  {
+    "transport_schema_version": "cerev.cms_classification.transport.v1",
+    "logical_source_id": "source-operational-cms",
+    "source_system": "operational_cms",
+    "source_record_id": "cms-classification-event-a-v2",
+    "record_category": "cms_classification",
+    "dataset_kind": "canonical_simulation_fixture",
+    "source_native_version": "V2",
+    "payload_sha256": "7cda15f9ffb249f403bb30c0876c71ab3c7f2e3ed5b56b4676e0321a8b684af5",
+    "payload_json": "{\"classification\":\"planned\",\"classified_at\":null,\"dataset_kind\":\"canonical_simulation_fixture\",\"event_id\":\"event-a\",\"fixture_record_id\":\"cms-classification-event-a-v2\",\"logical_source_id\":\"source-operational-cms\",\"policy_version\":\"V2\",\"provenance\":{\"observed_at\":null,\"record_created_at\":null,\"source_record_id\":\"cms-classification-event-a-v2\",\"source_system\":\"operational_cms\",\"version_id\":\"V2\"},\"record_category\":\"cms_classification\",\"source_native_created_at\":null,\"source_native_observed_at\":null,\"source_native_version\":\"V2\",\"source_record_id\":\"cms-classification-event-a-v2\",\"source_system\":\"operational_cms\"}"
+  },
+  {
+    "transport_schema_version": "cerev.cms_classification.transport.v1",
+    "logical_source_id": "source-operational-cms",
+    "source_system": "operational_cms",
+    "source_record_id": "cms-classification-event-b-v2",
+    "record_category": "cms_classification",
+    "dataset_kind": "canonical_simulation_fixture",
+    "source_native_version": "V2",
+    "payload_sha256": "3c9920ddbc4ca3266d44418e7c243f00d06108f208e2797bb21d3036f395bbfc",
+    "payload_json": "{\"classification\":\"planned\",\"classified_at\":null,\"dataset_kind\":\"canonical_simulation_fixture\",\"event_id\":\"event-b\",\"fixture_record_id\":\"cms-classification-event-b-v2\",\"logical_source_id\":\"source-operational-cms\",\"policy_version\":\"V2\",\"provenance\":{\"observed_at\":null,\"record_created_at\":null,\"source_record_id\":\"cms-classification-event-b-v2\",\"source_system\":\"operational_cms\",\"version_id\":\"V2\"},\"record_category\":\"cms_classification\",\"source_native_created_at\":null,\"source_native_observed_at\":null,\"source_native_version\":\"V2\",\"source_record_id\":\"cms-classification-event-b-v2\",\"source_system\":\"operational_cms\"}"
+  },
+  {
+    "transport_schema_version": "cerev.cms_classification.transport.v1",
+    "logical_source_id": "source-operational-cms",
+    "source_system": "operational_cms",
+    "source_record_id": "cms-classification-event-c-v2",
+    "record_category": "cms_classification",
+    "dataset_kind": "canonical_simulation_fixture",
+    "source_native_version": "V2",
+    "payload_sha256": "c1d7a24c54e1752e8a2531e853d033525a3fba35a4b0eb6819a595a974808bbe",
+    "payload_json": "{\"classification\":\"planned\",\"classified_at\":null,\"dataset_kind\":\"canonical_simulation_fixture\",\"event_id\":\"event-c\",\"fixture_record_id\":\"cms-classification-event-c-v2\",\"logical_source_id\":\"source-operational-cms\",\"policy_version\":\"V2\",\"provenance\":{\"observed_at\":null,\"record_created_at\":null,\"source_record_id\":\"cms-classification-event-c-v2\",\"source_system\":\"operational_cms\",\"version_id\":\"V2\"},\"record_category\":\"cms_classification\",\"source_native_created_at\":null,\"source_native_observed_at\":null,\"source_native_version\":\"V2\",\"source_record_id\":\"cms-classification-event-c-v2\",\"source_system\":\"operational_cms\"}"
+  },
+  {
+    "transport_schema_version": "cerev.cms_classification.transport.v1",
+    "logical_source_id": "source-operational-cms",
+    "source_system": "operational_cms",
+    "source_record_id": "cms-classification-event-d-v2",
+    "record_category": "cms_classification",
+    "dataset_kind": "canonical_simulation_fixture",
+    "source_native_version": "V2",
+    "payload_sha256": "9dd30c8f398fce4db668c62be16b2495fc03e79de60492b844398dfd63786ca1",
+    "payload_json": "{\"classification\":\"unscheduled\",\"classified_at\":null,\"dataset_kind\":\"canonical_simulation_fixture\",\"event_id\":\"event-d\",\"fixture_record_id\":\"cms-classification-event-d-v2\",\"logical_source_id\":\"source-operational-cms\",\"policy_version\":\"V2\",\"provenance\":{\"observed_at\":null,\"record_created_at\":null,\"source_record_id\":\"cms-classification-event-d-v2\",\"source_system\":\"operational_cms\",\"version_id\":\"V2\"},\"record_category\":\"cms_classification\",\"source_native_created_at\":null,\"source_native_observed_at\":null,\"source_native_version\":\"V2\",\"source_record_id\":\"cms-classification-event-d-v2\",\"source_system\":\"operational_cms\"}"
+  }
+]

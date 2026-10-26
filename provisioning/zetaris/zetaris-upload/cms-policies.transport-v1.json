@@ -1,0 +1,24 @@
+[
+  {
+    "transport_schema_version": "cerev.cms_policy.transport.v1",
+    "logical_source_id": "source-operational-cms",
+    "source_system": "operational_cms",
+    "source_record_id": "cms-policy-v1",
+    "record_category": "cms_policy",
+    "dataset_kind": "canonical_simulation_fixture",
+    "source_native_version": "V1",
+    "payload_sha256": "c2f390e17a843dbe9c135b6cb2711d0006802841cb1b666d768c554133eac833",
+    "payload_json": "{\"classification_notice_threshold_hours\":48,\"dataset_kind\":\"canonical_simulation_fixture\",\"effective_at\":null,\"effective_from_date\":null,\"fixture_record_id\":\"cms-policy-v1\",\"logical_source_id\":\"source-operational-cms\",\"policy_version\":\"V1\",\"provenance\":{\"observed_at\":null,\"record_created_at\":null,\"source_record_id\":\"cms-policy-v1\",\"source_system\":\"operational_cms\",\"version_id\":\"V1\"},\"record_category\":\"cms_policy\",\"source_native_created_at\":null,\"source_native_observed_at\":null,\"source_native_version\":\"V1\",\"source_record_id\":\"cms-policy-v1\",\"source_system\":\"operational_cms\",\"timestamp_notes\":\"The V1 start and end dates were not provided.\"}"
+  },
+  {
+    "transport_schema_version": "cerev.cms_policy.transport.v1",
+    "logical_source_id": "source-operational-cms",
+    "source_system": "operational_cms",
+    "source_record_id": "cms-policy-v2",
+    "record_category": "cms_policy",
+    "dataset_kind": "canonical_simulation_fixture",
+    "source_native_version": "V2",
+    "payload_sha256": "d96126e1cdbdd166e672be3823a3af3bb725401c8d73f4126b4d2e61cbf8ab24",
+    "payload_json": "{\"classification_notice_threshold_hours\":24,\"dataset_kind\":\"canonical_simulation_fixture\",\"effective_at\":null,\"effective_from_date\":\"2024-02-01\",\"fixture_record_id\":\"cms-policy-v2\",\"logical_source_id\":\"source-operational-cms\",\"policy_version\":\"V2\",\"provenance\":{\"observed_at\":null,\"record_created_at\":null,\"source_record_id\":\"cms-policy-v2\",\"source_system\":\"operational_cms\",\"version_id\":\"V2\"},\"record_category\":\"cms_policy\",\"source_native_created_at\":null,\"source_native_observed_at\":null,\"source_native_version\":\"V2\",\"source_record_id\":\"cms-policy-v2\",\"source_system\":\"operational_cms\",\"timestamp_notes\":\"Only the effective calendar date was supplied; time of day is unknown.\"}"
+  }
+]
