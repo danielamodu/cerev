@@ -1,0 +1,41 @@
+{
+  "dataset_kind": "canonical_simulation_fixture",
+  "envelope_filename": "releases.transport-v1.json",
+  "envelope_sha256": "c6be17a860afe1575882f16fd29a06fa74736836117abf6b20e322a923956773",
+  "existing_adapter": "ZetarisReleaseRegistryAdapter",
+  "intended_zetaris_relation": "cerev_phase12_2_fixture.releases",
+  "logical_source_id": "source-release-registry",
+  "payload_sha256": [
+    {
+      "payload_sha256": "f2154cdbad99470884d26f6e14bcbb4a32065f9fd70ab56b4a88dd475a2bba53",
+      "source_record_id": "creditcalc-v2.0-deployment"
+    },
+    {
+      "payload_sha256": "bdd143e3d85031f8958ef66919d1e424e4c489f77b70d2155898eb07c9724e0c",
+      "source_record_id": "creditcalc-v2.1-deployment"
+    }
+  ],
+  "record_category": "adapter_deployment",
+  "record_count": 2,
+  "record_group": "releases",
+  "relation_status": "proposed_unregistered_unverified",
+  "source_fixture_identity": {
+    "logical_source_id": "source-release-registry",
+    "record_category": "adapter_deployment",
+    "record_count": 2,
+    "source_file_sha256": "2bdfc6b6a0c6e26e40b49e051c608ba5bd6a71548e005cb0598876133a7cd54c",
+    "source_filename": "releases.jsonl",
+    "source_fixture_manifest_sha256": "cc8712c7d568159c9cbf1fb282c480d31d7f8f993a795731ca0ce7131ff7f49e",
+    "source_system": "release_registry"
+  },
+  "source_native_versions": [
+    "2.0",
+    "2.1"
+  ],
+  "source_record_ids": [
+    "creditcalc-v2.0-deployment",
+    "creditcalc-v2.1-deployment"
+  ],
+  "source_system": "release_registry",
+  "transport_schema_version": "cerev.adapter_deployment.transport.v1"
+}

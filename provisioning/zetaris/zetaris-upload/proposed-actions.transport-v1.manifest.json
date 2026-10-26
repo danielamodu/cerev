@@ -1,0 +1,35 @@
+{
+  "dataset_kind": "canonical_simulation_fixture",
+  "envelope_filename": "proposed-actions.transport-v1.json",
+  "envelope_sha256": "63b704b286bcd1d5381d9fb6344616ef72e874e3e4c9535a8776aacedc1885c2",
+  "existing_adapter": "ZetarisBillingActionAdapter",
+  "intended_zetaris_relation": "cerev_phase12_2_fixture.proposed_actions",
+  "logical_source_id": "source-billing-calculation-and-action",
+  "payload_sha256": [
+    {
+      "payload_sha256": "d16947c7f385517a2a9f36ce56fedd1ccc8a621cd504fe6dcb77ff5a89c2331c",
+      "source_record_id": "proposed-credit-client-a-2024-03-2024-04-02T0915Z"
+    }
+  ],
+  "record_category": "proposed_action",
+  "record_count": 1,
+  "record_group": "proposed_actions",
+  "relation_status": "proposed_unregistered_unverified",
+  "source_fixture_identity": {
+    "logical_source_id": "source-billing-calculation-and-action",
+    "record_category": "proposed_action",
+    "record_count": 1,
+    "source_file_sha256": "0e3afeb4dfc13cd23d19e99e002221ff9d03a2f5cb37c93bb1ef075a0c53ec73",
+    "source_filename": "proposed_actions.jsonl",
+    "source_fixture_manifest_sha256": "cc8712c7d568159c9cbf1fb282c480d31d7f8f993a795731ca0ce7131ff7f49e",
+    "source_system": "billing_calculation_and_action"
+  },
+  "source_native_versions": [
+    null
+  ],
+  "source_record_ids": [
+    "proposed-credit-client-a-2024-03-2024-04-02T0915Z"
+  ],
+  "source_system": "billing_calculation_and_action",
+  "transport_schema_version": "cerev.proposed_action.transport.v1"
+}

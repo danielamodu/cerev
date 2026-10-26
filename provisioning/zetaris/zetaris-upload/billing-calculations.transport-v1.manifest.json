@@ -1,0 +1,35 @@
+{
+  "dataset_kind": "canonical_simulation_fixture",
+  "envelope_filename": "billing-calculations.transport-v1.json",
+  "envelope_sha256": "5aa989bd063079eee5ee72893cf9f78d609db0bb9126413ae88c178d6d00f707",
+  "existing_adapter": "ZetarisBillingActionAdapter",
+  "intended_zetaris_relation": "cerev_phase12_2_fixture.billing_calculations",
+  "logical_source_id": "source-billing-calculation-and-action",
+  "payload_sha256": [
+    {
+      "payload_sha256": "9c7c1598dcf44cf3b1bf1f0d1d6526a50611e403cf7303f8f146e813e2815a68",
+      "source_record_id": "credit-calculation-client-a-2024-03-2024-04-02"
+    }
+  ],
+  "record_category": "billing_calculation",
+  "record_count": 1,
+  "record_group": "calculations",
+  "relation_status": "proposed_unregistered_unverified",
+  "source_fixture_identity": {
+    "logical_source_id": "source-billing-calculation-and-action",
+    "record_category": "billing_calculation",
+    "record_count": 1,
+    "source_file_sha256": "b160915145b959b0020314443a9c2a6da0d07358b34b06291774a07ec01a6935",
+    "source_filename": "billing_calculations.jsonl",
+    "source_fixture_manifest_sha256": "cc8712c7d568159c9cbf1fb282c480d31d7f8f993a795731ca0ce7131ff7f49e",
+    "source_system": "billing_calculation_and_action"
+  },
+  "source_native_versions": [
+    "CreditCalc 2.1"
+  ],
+  "source_record_ids": [
+    "credit-calculation-client-a-2024-03-2024-04-02"
+  ],
+  "source_system": "billing_calculation_and_action",
+  "transport_schema_version": "cerev.billing_calculation.transport.v1"
+}

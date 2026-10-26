@@ -1,0 +1,24 @@
+[
+  {
+    "transport_schema_version": "cerev.adapter_deployment.transport.v1",
+    "logical_source_id": "source-release-registry",
+    "source_system": "release_registry",
+    "source_record_id": "creditcalc-v2.0-deployment",
+    "record_category": "adapter_deployment",
+    "dataset_kind": "canonical_simulation_fixture",
+    "source_native_version": "2.0",
+    "payload_sha256": "f2154cdbad99470884d26f6e14bcbb4a32065f9fd70ab56b4a88dd475a2bba53",
+    "payload_json": "{\"adapter_name\":\"CreditCalc\",\"adapter_version\":\"2.0\",\"dataset_kind\":\"canonical_simulation_fixture\",\"deployment_at\":null,\"deployment_relation\":\"deployed_before_2024-03-15\",\"fixture_record_id\":\"creditcalc-v2.0-deployment\",\"logical_source_id\":\"source-release-registry\",\"notice_handling\":\"independently_checks_contractual_48_hour_notice_requirement\",\"provenance\":{\"observed_at\":null,\"record_created_at\":null,\"source_record_id\":\"creditcalc-v2.0-deployment\",\"source_system\":\"release_registry\",\"version_id\":\"2.0\"},\"record_category\":\"adapter_deployment\",\"source_native_created_at\":null,\"source_native_observed_at\":null,\"source_native_version\":\"2.0\",\"source_record_id\":\"creditcalc-v2.0-deployment\",\"source_system\":\"release_registry\",\"timestamp_notes\":\"The exact v2.0 deployment timestamp was not supplied.\"}"
+  },
+  {
+    "transport_schema_version": "cerev.adapter_deployment.transport.v1",
+    "logical_source_id": "source-release-registry",
+    "source_system": "release_registry",
+    "source_record_id": "creditcalc-v2.1-deployment",
+    "record_category": "adapter_deployment",
+    "dataset_kind": "canonical_simulation_fixture",
+    "source_native_version": "2.1",
+    "payload_sha256": "bdd143e3d85031f8958ef66919d1e424e4c489f77b70d2155898eb07c9724e0c",
+    "payload_json": "{\"adapter_name\":\"CreditCalc\",\"adapter_version\":\"2.1\",\"dataset_kind\":\"canonical_simulation_fixture\",\"deployment_at\":null,\"deployment_date\":\"2024-03-15\",\"fixture_record_id\":\"creditcalc-v2.1-deployment\",\"logical_source_id\":\"source-release-registry\",\"notice_handling\":\"trusts_cms_classification_without_independent_contractual_notice_timestamp_check\",\"provenance\":{\"observed_at\":null,\"record_created_at\":null,\"source_record_id\":\"creditcalc-v2.1-deployment\",\"source_system\":\"release_registry\",\"version_id\":\"2.1\"},\"record_category\":\"adapter_deployment\",\"source_native_created_at\":null,\"source_native_observed_at\":null,\"source_native_version\":\"2.1\",\"source_record_id\":\"creditcalc-v2.1-deployment\",\"source_system\":\"release_registry\",\"timestamp_notes\":\"Only the deployment calendar date was supplied; time of day is unknown.\"}"
+  }
+]
