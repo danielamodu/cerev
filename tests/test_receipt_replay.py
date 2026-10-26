@@ -200,10 +200,10 @@ def test_replay_uses_pinned_snapshot_instead_of_current_fixture(
 
     original_loader = replay_module.load_canonical_evidence_package
 
-    def pinned_loader(directory: Path | None = None) -> Any:
+    def pinned_loader(directory: Path | None = None, **kwargs: Any) -> Any:
         assert directory is not None
         assert directory.resolve() != FIXTURE_DIR.resolve()
-        return original_loader(directory)
+        return original_loader(directory, **kwargs)
 
     monkeypatch.setattr(replay_module, "load_canonical_evidence_package", pinned_loader)
 

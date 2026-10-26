@@ -21,7 +21,8 @@ from cerev.evidence_provider import (
     evidence_provider_from_environment,
 )
 from cerev.policy import Disposition
-from cerev.receipt import evaluate_and_create_receipt
+from cerev.receipt import canonical_json_bytes, evaluate_and_create_receipt, snapshot_from_receipt
+from cerev.replay import ReplayStatus, replay_decision
 from cerev.source_adapters import CollectionStatus, EvidenceCollector
 from cerev.zetaris import (
     ZetarisClientError,
@@ -33,7 +34,8 @@ from cerev.zetaris import (
     _extract_rows,
     adapters_from_environment,
 )
-from tests.test_coordinator import FIXTURE_DIR, NOW
+from scripts.build_zetaris_source_transports import REMAINING_BINDINGS
+from tests.test_coordinator import NOW
 
 
 def _config(
@@ -57,55 +59,49 @@ def _environment(tmp_path: Path) -> dict[str, str]:
         "CEREV_ZETARIS_CONTRACT_RECORDS_TABLE": (
             "cerev_contract_records_v1.cerev_contract_records_v1"
         ),
-        "CEREV_ZETARIS_CMS_POLICIES_TABLE": "CEREV.CMS_POLICIES",
-        "CEREV_ZETARIS_CMS_CLASSIFICATIONS_TABLE": "CEREV.CMS_CLASSIFICATIONS",
-        "CEREV_ZETARIS_MAINTENANCE_EVENTS_TABLE": "CEREV.MAINTENANCE_EVENTS",
-        "CEREV_ZETARIS_NOTICE_RECORDS_TABLE": "CEREV.NOTICE_RECORDS",
-        "CEREV_ZETARIS_RELEASES_TABLE": "CEREV.RELEASES",
-        "CEREV_ZETARIS_BILLING_CALCULATIONS_TABLE": "CEREV.BILLING_CALCULATIONS",
-        "CEREV_ZETARIS_PROPOSED_ACTIONS_TABLE": "CEREV.PROPOSED_ACTIONS",
+        "CEREV_ZETARIS_CMS_POLICIES_TABLE": "cerev_phase124.cerev_main",
+        "CEREV_ZETARIS_CMS_CLASSIFICATIONS_TABLE": "cerev_phase124.cerev_main",
+        "CEREV_ZETARIS_MAINTENANCE_EVENTS_TABLE": "cerev_phase124.cerev_main",
+        "CEREV_ZETARIS_NOTICE_RECORDS_TABLE": "cerev_phase124.cerev_main",
+        "CEREV_ZETARIS_RELEASES_TABLE": "cerev_phase124.cerev_releases",
+        "CEREV_ZETARIS_BILLING_CALCULATIONS_TABLE": "cerev_phase124.cerev_main",
+        "CEREV_ZETARIS_PROPOSED_ACTIONS_TABLE": "cerev_phase124.cerev_main",
     }
 
 
 class _FixtureQueryClient:
     def __init__(
-        self, *, fail_relation: str | None = None, with_http_metadata: bool = False
+        self,
+        *,
+        fail_relation: str | None = None,
+        fail_query_number: int | None = None,
+        with_http_metadata: bool = False,
     ) -> None:
         self.tables: dict[str, list[dict[str, object]]] = {}
         self.fail_relation = fail_relation
+        self.fail_query_number = fail_query_number
         self.with_http_metadata = with_http_metadata
         self.queries: list[tuple[str, int]] = []
-        files = {
-            "operational_cms.json": {
-                "policies": "CEREV.CMS_POLICIES",
-                "classifications": "CEREV.CMS_CLASSIFICATIONS",
-            },
-            "maintenance_incidents.json": {
-                "events": "CEREV.MAINTENANCE_EVENTS",
-                "notice_records": "CEREV.NOTICE_RECORDS",
-            },
-            "release_registry.json": {"releases": "CEREV.RELEASES"},
-            "billing_and_action.json": {
-                "calculations": "CEREV.BILLING_CALCULATIONS",
-                "proposed_actions": "CEREV.PROPOSED_ACTIONS",
-            },
-        }
-        transport_rows = json.loads(
-            (
-                Path(__file__).resolve().parents[1]
-                / "provisioning/zetaris/zetaris-upload/contracts.transport-v1.json"
-            ).read_text(encoding="utf-8")
+        artifact_dir = Path(__file__).resolve().parents[1] / "provisioning/zetaris/zetaris-upload"
+        contract_rows = json.loads(
+            (artifact_dir / "contracts.transport-v1.json").read_text(encoding="utf-8")
         )
-        self.tables["cerev_contract_records_v1.cerev_contract_records_v1"] = transport_rows
-        for filename, groups in files.items():
-            dataset = json.loads((FIXTURE_DIR / filename).read_text(encoding="utf-8"))
-            for group, relation in groups.items():
-                self.tables[relation] = dataset[group]
+        self.tables["cerev_contract_records_v1.cerev_contract_records_v1"] = contract_rows
+        self.tables["cerev_phase124.cerev_main"] = list(contract_rows)
+        self.tables["cerev_phase124.cerev_releases"] = []
+        for binding in REMAINING_BINDINGS:
+            relation = (
+                "cerev_phase124.cerev_releases"
+                if binding.record_category == "adapter_deployment"
+                else "cerev_phase124.cerev_main"
+            )
+            artifact = artifact_dir / f"{binding.artifact_stem}.transport-v1.json"
+            self.tables[relation].extend(json.loads(artifact.read_text(encoding="utf-8")))
 
     def query(self, sql: str, *, limit: int) -> object:
         self.queries.append((sql, limit))
         relation = sql.split(" FROM ", 1)[1].split(" ORDER BY ", 1)[0]
-        if relation == self.fail_relation:
+        if relation == self.fail_relation or len(self.queries) == self.fail_query_number:
             raise ZetarisClientError("query_failed", "Mocked query failure.")
         rows = self.tables[relation][:limit]
         headers = list(dict.fromkeys(key for row in rows for key in row))
@@ -412,14 +408,30 @@ def test_five_logical_sources_collect_through_normal_canonical_pipeline(tmp_path
         item.connection_metadata["query_diagnostics"][0]["http_status"] == 200
         for item in collection.source_statuses
     )
-    assert len(client.queries) == 8
+    assert len(client.queries) == 5
     assert all(
-        limit <= 5 and "ORDER BY source_record_id LIMIT" in sql for sql, limit in client.queries
+        limit <= 17 and "ORDER BY source_record_id LIMIT" in sql for sql, limit in client.queries
     )
 
     package = collection.package
     assert len(package.sources) == 5
     assert len(package.records) == 18
+    records_by_source = {
+        source.source_id: [
+            record for record in package.records if record.source_id == source.source_id
+        ]
+        for source in package.sources
+    }
+    assert {
+        source_id: {record.record_type for record in records}
+        for source_id, records in records_by_source.items()
+    } == {
+        "source-contract-repository": {"service_agreement"},
+        "source-operational-cms": {"cms_policy", "cms_classification"},
+        "source-maintenance-incident-registry": {"maintenance_event", "notice_record"},
+        "source-release-registry": {"adapter_deployment"},
+        "source-billing-calculation-and-action": {"billing_calculation", "proposed_action"},
+    }
     assert package.records[0].source_record_id
     assert package.records[0].content_sha256
     assert package.sources[0].dataset_id.startswith("zetaris:cerev_contract_records_v1.")
@@ -431,6 +443,18 @@ def test_five_logical_sources_collect_through_normal_canonical_pipeline(tmp_path
     assert source_provenance["source_native_observation_timestamp"] == "unavailable"
     calculation = evaluate_and_create_receipt(package, created_at=NOW)
     assert calculation.receipt.disposition == Disposition.BLOCK
+    assert (
+        calculation.receipt.contents["evidence_snapshot_sha256"]
+        == hashlib.sha256(canonical_json_bytes(calculation.receipt.evidence_snapshot)).hexdigest()
+    )
+    replay = replay_decision(
+        calculation.receipt,
+        snapshot_from_receipt(calculation.receipt),
+    )
+    assert replay.status == ReplayStatus.REPRODUCED
+    assert replay.replayed_disposition == "BLOCK"
+    assert replay.replayed_reference_amount_cents == 1_920_000
+    assert replay.replayed_proposed_amount_cents == 480_000
     receipt_source = calculation.receipt.evidence_snapshot["sources"][0]
     assert receipt_source["collection_provenance"]["global_snapshot_consistency"] == "not_claimed"
     assert package.reference_calculation.credit_cents == 1_920_000
@@ -439,7 +463,7 @@ def test_five_logical_sources_collect_through_normal_canonical_pipeline(tmp_path
 
 
 def test_one_zetaris_relation_failure_cannot_yield_a_partial_package(tmp_path: Path) -> None:
-    client = _FixtureQueryClient(fail_relation="CEREV.MAINTENANCE_EVENTS")
+    client = _FixtureQueryClient(fail_query_number=3)
     adapters = adapters_from_environment(_config(), _environment(tmp_path), client=client)
 
     collection = EvidenceCollector(adapters).collect()
@@ -466,13 +490,15 @@ def test_one_zetaris_relation_failure_cannot_yield_a_partial_package(tmp_path: P
     [
         (
             "cerev_contract_records_v1.cerev_contract_records_v1",
-            lambda rows: rows.__setitem__(0, {"payload": "missing native ID"}),
+            lambda rows: rows.__setitem__(
+                0, {key: value for key, value in rows[0].items() if key != "payload_json"}
+            ),
             "source-contract-repository",
             "transport_schema_invalid",
         ),
         (
-            "CEREV.CMS_CLASSIFICATIONS",
-            lambda rows: rows.__setitem__(1, dict(rows[0])),
+            "cerev_phase124.cerev_main",
+            lambda rows: rows.__setitem__(3, dict(rows[2])),
             "source-operational-cms",
             "duplicate_record",
         ),
@@ -522,6 +548,52 @@ def test_gateway_source_adapter_detects_rows_truncated_or_over_contract_count(
     assert failed.status == CollectionStatus.UNAVAILABLE
     assert failed.error is not None
     assert failed.error.code == "source_schema_invalid"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["missing_category", "unexpected_category", "wrong_source", "bad_hash", "missing_null_version"],
+)
+def test_shared_relation_integrity_failures_prevent_package(tmp_path: Path, mutation: str) -> None:
+    client = _FixtureQueryClient()
+    rows = client.tables["cerev_phase124.cerev_main"]
+    if mutation == "missing_category":
+        index = next(i for i, row in enumerate(rows) if row["record_category"] == "cms_policy")
+        rows.pop(index)
+    elif mutation == "unexpected_category":
+        rows[0] = {**rows[0], "record_category": "unknown_category"}
+    elif mutation == "wrong_source":
+        index = next(i for i, row in enumerate(rows) if row["record_category"] == "cms_policy")
+        rows[index] = {**rows[index], "logical_source_id": "source-release-registry"}
+    elif mutation == "bad_hash":
+        index = next(i for i, row in enumerate(rows) if row["record_category"] == "cms_policy")
+        rows[index] = {**rows[index], "payload_sha256": "0" * 64}
+    else:
+        index = next(
+            i for i, row in enumerate(rows) if row["record_category"] == "maintenance_event"
+        )
+        payload = json.loads(rows[index]["payload_json"])
+        del payload["source_native_version"]
+        payload_text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        rows[index] = {
+            **rows[index],
+            "payload_json": payload_text,
+            "payload_sha256": hashlib.sha256(payload_text.encode("utf-8")).hexdigest(),
+        }
+
+    collection = EvidenceCollector(
+        adapters_from_environment(_config(), _environment(tmp_path), client=client)
+    ).collect()
+
+    assert collection.complete is False
+    assert collection.package is None
+    cms = next(
+        status
+        for status in collection.source_statuses
+        if status.identity.source_id == "source-operational-cms"
+    )
+    assert cms.status == CollectionStatus.UNAVAILABLE
+    assert cms.error is not None
 
 
 def _transport_row() -> dict[str, str]:

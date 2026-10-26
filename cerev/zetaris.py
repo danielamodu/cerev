@@ -41,6 +41,7 @@ CONTRACT_TRANSPORT_COLUMNS = frozenset(
         "payload_json",
     }
 )
+SOURCE_TRANSPORT_COLUMNS = CONTRACT_TRANSPORT_COLUMNS
 _CONTRACT_TRANSPORT_IDENTITY = {
     "logical_source_id": "source-contract-repository",
     "source_system": "contract_repository",
@@ -71,37 +72,70 @@ class ZetarisClientError(RuntimeError):
 
 
 def _decode_contract_transport_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Verify and reconstruct the one supported canonical contract envelope."""
-    if set(row) != CONTRACT_TRANSPORT_COLUMNS:
+    """Verify and reconstruct the existing canonical contract envelope."""
+    return _decode_source_transport_row(
+        row,
+        logical_source_id="source-contract-repository",
+        source_system="contract_repository",
+        record_category="service_agreement",
+        schema_version=CONTRACT_TRANSPORT_SCHEMA,
+        expected_identity=_CONTRACT_TRANSPORT_IDENTITY,
+    )
+
+
+def _decode_source_transport_row(
+    row: dict[str, Any],
+    *,
+    logical_source_id: str,
+    source_system: str,
+    record_category: str,
+    schema_version: str,
+    expected_identity: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Strictly validate and reconstruct one category-specific transport envelope."""
+    if set(row) != SOURCE_TRANSPORT_COLUMNS:
         raise ZetarisClientError(
-            "transport_schema_invalid",
-            "Contract transport row has missing or unexpected envelope columns.",
+            "transport_schema_invalid", "Transport row has missing or unexpected envelope columns."
         )
-    for column in CONTRACT_TRANSPORT_COLUMNS - {"payload_sha256", "payload_json"}:
-        if not isinstance(row[column], str):
+    for column in SOURCE_TRANSPORT_COLUMNS - {
+        "payload_sha256",
+        "payload_json",
+        "source_native_version",
+    }:
+        if not isinstance(row[column], str) or not row[column]:
             raise ZetarisClientError(
                 "transport_schema_invalid",
-                f"Contract transport column {column} must be a string.",
+                f"Transport column {column} must be non-empty text.",
             )
+    if row["source_native_version"] is not None and not isinstance(
+        row["source_native_version"], str
+    ):
+        raise ZetarisClientError(
+            "transport_schema_invalid", "Transport source_native_version must be text or null."
+        )
     if not isinstance(row["payload_sha256"], str) or not re.fullmatch(
         r"[0-9a-f]{64}", row["payload_sha256"]
     ):
-        raise ZetarisClientError(
-            "transport_schema_invalid", "Contract transport payload digest is invalid."
-        )
+        raise ZetarisClientError("transport_schema_invalid", "Transport payload digest is invalid.")
     if not isinstance(row["payload_json"], str):
         raise ZetarisClientError(
-            "transport_schema_invalid", "Contract transport payload_json must be a string."
+            "transport_schema_invalid", "Transport payload_json must be a string."
         )
-    if row["transport_schema_version"] != CONTRACT_TRANSPORT_SCHEMA:
+    if row["transport_schema_version"] != schema_version:
         raise ZetarisClientError(
-            "transport_schema_unsupported", "Contract transport schema version is unsupported."
+            "transport_schema_unsupported", "Transport schema version is unsupported."
         )
-    for field_name, expected in _CONTRACT_TRANSPORT_IDENTITY.items():
+    expected_metadata = {
+        "logical_source_id": logical_source_id,
+        "source_system": source_system,
+        "record_category": record_category,
+        "dataset_kind": "canonical_simulation_fixture",
+    }
+    for field_name, expected in (expected_identity or expected_metadata).items():
         if row[field_name] != expected:
             raise ZetarisClientError(
                 "transport_metadata_mismatch",
-                f"Contract transport metadata {field_name} does not match the canonical source.",
+                f"Transport metadata {field_name} does not match the configured source mapping.",
             )
 
     try:
@@ -109,11 +143,11 @@ def _decode_contract_transport_row(row: dict[str, Any]) -> dict[str, Any]:
         payload_text = payload_bytes.decode("utf-8", errors="strict")
     except UnicodeError as error:
         raise ZetarisClientError(
-            "transport_payload_invalid", "Contract transport payload is not strict UTF-8."
+            "transport_payload_invalid", "Transport payload is not strict UTF-8."
         ) from error
     if hashlib.sha256(payload_bytes).hexdigest() != row["payload_sha256"]:
         raise ZetarisClientError(
-            "transport_digest_mismatch", "Contract transport payload digest does not match."
+            "transport_digest_mismatch", "Transport payload digest does not match."
         )
 
     try:
@@ -125,11 +159,11 @@ def _decode_contract_transport_row(row: dict[str, Any]) -> dict[str, Any]:
         )
     except (json.JSONDecodeError, ValueError, TypeError, RecursionError) as error:
         raise ZetarisClientError(
-            "transport_payload_invalid", "Contract transport payload is not strict JSON."
+            "transport_payload_invalid", "Transport payload is not strict JSON."
         ) from error
     if not isinstance(payload, dict):
         raise ZetarisClientError(
-            "transport_payload_invalid", "Contract transport payload must be a JSON object."
+            "transport_payload_invalid", "Transport payload must be a JSON object."
         )
     embedded_identity = {
         "logical_source_id": payload.get("logical_source_id"),
@@ -139,16 +173,54 @@ def _decode_contract_transport_row(row: dict[str, Any]) -> dict[str, Any]:
         "dataset_kind": payload.get("dataset_kind"),
         "source_native_version": payload.get("source_native_version"),
     }
-    for field_name, expected in _CONTRACT_TRANSPORT_IDENTITY.items():
+    embedded_expected = {
+        **expected_metadata,
+        "source_record_id": row["source_record_id"],
+        "source_native_version": row["source_native_version"],
+    }
+    for field_name, expected in embedded_expected.items():
+        if field_name not in payload:
+            raise ZetarisClientError(
+                "transport_metadata_mismatch",
+                f"Reconstructed payload is missing {field_name}.",
+            )
         if embedded_identity[field_name] != expected:
             raise ZetarisClientError(
                 "transport_metadata_mismatch",
-                f"Reconstructed contract payload {field_name} does not match envelope metadata.",
+                f"Reconstructed payload {field_name} does not match envelope metadata.",
             )
-    if payload.get("record_type") != row["record_category"]:
+    if payload.get("fixture_record_id") != row["source_record_id"]:
         raise ZetarisClientError(
             "transport_metadata_mismatch",
-            "Reconstructed contract payload record_type does not match envelope metadata.",
+            "Reconstructed payload fixture_record_id does not match source_record_id.",
+        )
+    provenance = payload.get("provenance")
+    if not isinstance(provenance, dict):
+        raise ZetarisClientError(
+            "transport_metadata_mismatch", "Reconstructed payload provenance must be an object."
+        )
+    for field_name, expected in (
+        ("source_system", row["source_system"]),
+        ("source_record_id", row["source_record_id"]),
+        ("version_id", row["source_native_version"]),
+        ("record_created_at", payload.get("source_native_created_at")),
+        ("observed_at", payload.get("source_native_observed_at")),
+    ):
+        if field_name not in provenance or provenance[field_name] != expected:
+            raise ZetarisClientError(
+                "transport_metadata_mismatch",
+                f"Reconstructed payload provenance {field_name} does not match its record.",
+            )
+    for field_name in ("source_native_created_at", "source_native_observed_at"):
+        if field_name not in payload:
+            raise ZetarisClientError(
+                "transport_metadata_mismatch",
+                f"Reconstructed payload is missing {field_name}.",
+            )
+    if "record_type" in payload and payload["record_type"] != row["record_category"]:
+        raise ZetarisClientError(
+            "transport_metadata_mismatch",
+            "Reconstructed payload record_type does not match envelope metadata.",
         )
     return payload
 
@@ -595,11 +667,16 @@ class RecordGroupBinding:
     group_name: str
     table_name: str
     expected_count: int
+    record_category: str | None = None
 
     def __post_init__(self) -> None:
         _validate_relation_name(self.table_name)
         if self.expected_count < 1 or self.expected_count + 1 > MAX_QUERY_ROWS:
             raise ValueError("Record-group expected_count is outside the bounded query limit.")
+        if self.record_category is not None and not re.fullmatch(
+            r"[a-z][a-z0-9_]*", self.record_category
+        ):
+            raise ValueError("Record-group category must be a lowercase SQL-safe identifier.")
 
 
 class ZetarisSourceAdapter:
@@ -608,26 +685,44 @@ class ZetarisSourceAdapter:
     source_id: str
     source_system: str
     category: SourceCategory
-    record_groups: tuple[tuple[str, int], ...]
+    record_groups: tuple[tuple[str, str, int], ...]
 
     def __init__(
         self,
         client: ZetarisQueryClient,
         config: ZetarisConfig,
         bindings: tuple[RecordGroupBinding, ...],
+        *,
+        relation_category_specs: Mapping[str, Mapping[str, tuple[str, str, int]]] | None = None,
     ) -> None:
-        expected = dict(self.record_groups)
+        expected = {
+            group: (record_category, count) for group, record_category, count in self.record_groups
+        }
         if {item.group_name for item in bindings} != set(expected):
             raise ValueError(f"Bindings do not match the required groups for {self.source_id}.")
         if len(bindings) != len(expected):
             raise ValueError(f"Duplicate source group binding for {self.source_id}.")
-        if any(item.expected_count != expected[item.group_name] for item in bindings):
+        if any(
+            item.expected_count != expected[item.group_name][1]
+            or item.record_category not in (None, expected[item.group_name][0])
+            for item in bindings
+        ):
             raise ValueError(
                 f"Record counts do not match the canonical group contract for {self.source_id}."
             )
         self.client = client
         self.config = config
         self.bindings = tuple(sorted(bindings, key=lambda item: item.group_name))
+        self.relation_category_specs = {
+            relation: dict(categories)
+            for relation, categories in (relation_category_specs or {}).items()
+        }
+        for binding in self.bindings:
+            if binding.table_name not in self.relation_category_specs:
+                category, count = expected[binding.group_name]
+                self.relation_category_specs[binding.table_name] = {
+                    category: (self.source_id, self.source_system, count)
+                }
 
     @property
     def identity(self) -> SourceIdentity:
@@ -640,7 +735,7 @@ class ZetarisSourceAdapter:
             "mode": "live",
             "gateway_url": self.config.gateway_url,
             "organization_id": self.config.organization_id,
-            "registered_relations": tuple(item.table_name for item in self.bindings),
+            "registered_relations": tuple(dict.fromkeys(item.table_name for item in self.bindings)),
             "source_revision_kind": "cerev_sha256_content_digest",
             "source_native_revision_available": False,
             "source_native_observation_timestamp_available": False,
@@ -654,14 +749,24 @@ class ZetarisSourceAdapter:
         query_diagnostics: list[dict[str, Any]] = []
         last_query_result: ZetarisQueryResult | None = None
         try:
+            retrieved_by_relation: dict[str, dict[str, list[dict[str, Any]]]] = {}
+            bindings_by_relation: dict[str, list[RecordGroupBinding]] = {}
             for binding in self.bindings:
-                relation_names.append(binding.table_name)
+                bindings_by_relation.setdefault(binding.table_name, []).append(binding)
+
+            for relation, relation_bindings in bindings_by_relation.items():
+                relation_names.append(relation)
+                expected_categories = self.relation_category_specs[relation]
+                expected_relation_count = sum(
+                    count for _source_id, _source_system, count in expected_categories.values()
+                )
                 sql = (
-                    f"SELECT * FROM {binding.table_name} "
-                    f"ORDER BY source_record_id LIMIT {binding.expected_count + 1}"
+                    f"SELECT * FROM {relation} "
+                    "ORDER BY source_record_id LIMIT "
+                    f"{expected_relation_count + 1}"
                 )
                 last_query_result = None
-                response = self.client.query(sql, limit=binding.expected_count + 1)
+                response = self.client.query(sql, limit=expected_relation_count + 1)
                 if isinstance(response, ZetarisQueryResult):
                     last_query_result = response
                     response_payload = response.payload
@@ -670,7 +775,7 @@ class ZetarisSourceAdapter:
                     )
                     query_diagnostics.append(
                         {
-                            "relation": binding.table_name,
+                            "relation": relation,
                             "http_status": response.http_status,
                             "request_id": response.request_id,
                             "retrieved_at": (
@@ -694,46 +799,86 @@ class ZetarisSourceAdapter:
                         }
                     )
                 rows = _extract_rows(response, self.config.rows_path)
-                if len(rows) != binding.expected_count:
+                if len(rows) != expected_relation_count:
                     raise ZetarisClientError(
                         "source_schema_invalid",
-                        f"Relation {binding.table_name} returned {len(rows)} rows; "
-                        f"expected {binding.expected_count}.",
+                        f"Relation {relation} returned {len(rows)} rows; "
+                        f"expected {expected_relation_count}.",
                     )
-                ids: set[str] = set()
-                group_records: list[dict[str, Any]] = []
+                seen_ids: set[tuple[str, str]] = set()
+                category_records = {category: [] for category in expected_categories}
                 for raw_row in rows:
-                    row = self._decode_source_row(raw_row)
-                    record_id = row.get("source_record_id")
-                    if not isinstance(record_id, str) or not record_id.strip():
+                    category = raw_row.get("record_category")
+                    if not isinstance(category, str) or category not in expected_categories:
                         raise ZetarisClientError(
                             "source_schema_invalid",
-                            f"Relation {binding.table_name} has a row without source_record_id.",
+                            f"Relation {relation} returned an unexpected record category.",
                         )
-                    if record_id in ids:
+                    source_id, source_system, _count = expected_categories[category]
+                    schema_version = (
+                        CONTRACT_TRANSPORT_SCHEMA
+                        if category == "service_agreement"
+                        else f"cerev.{category}.transport.v1"
+                    )
+                    row = _decode_source_transport_row(
+                        raw_row,
+                        logical_source_id=source_id,
+                        source_system=source_system,
+                        record_category=category,
+                        schema_version=schema_version,
+                    )
+                    record_id = row["source_record_id"]
+                    key = (category, record_id)
+                    if key in seen_ids:
                         raise ZetarisClientError(
                             "duplicate_record",
-                            f"Relation {binding.table_name} returned duplicate "
-                            "source_record_id values.",
+                            f"Relation {relation} returned duplicate source record IDs.",
                         )
-                    ids.add(record_id)
+                    seen_ids.add(key)
                     try:
                         canonical_json_bytes(row)
                     except (ReceiptError, TypeError, ValueError) as error:
                         raise ZetarisClientError(
                             "source_schema_invalid",
-                            f"Relation {binding.table_name} returned a non-JSON record.",
+                            f"Relation {relation} returned a non-JSON record.",
                         ) from error
-                    group_records.append(row)
+                    category_records[category].append(row)
+                for category, (
+                    _source_id,
+                    _source_system,
+                    expected_count,
+                ) in expected_categories.items():
+                    actual_count = len(category_records[category])
+                    if actual_count != expected_count:
+                        raise ZetarisClientError(
+                            "source_schema_invalid",
+                            f"Relation {relation} category {category} returned {actual_count} "
+                            f"rows; expected {expected_count}.",
+                        )
+                retrieved_by_relation[relation] = category_records
+
+            for binding in self.bindings:
+                category = next(
+                    value
+                    for group, value, _count in self.record_groups
+                    if group == binding.group_name
+                )
+                group_records = retrieved_by_relation[binding.table_name][category]
+                if len(group_records) != binding.expected_count:
+                    raise ZetarisClientError(
+                        "source_schema_invalid",
+                        f"Configured group {binding.group_name} has an unexpected record count.",
+                    )
+                dataset[binding.group_name] = group_records
+                for row in group_records:
                     records.append(
                         SourceRecord(
-                            source_record_id=record_id,
+                            source_record_id=row["source_record_id"],
                             record_group=binding.group_name,
                             source_version=_source_version(row),
                             payload=row,
                         )
                     )
-                dataset[binding.group_name] = group_records
         except ZetarisClientError as error:
             status = error.http_status
             request_id = error.request_id
@@ -755,7 +900,7 @@ class ZetarisSourceAdapter:
                 "Zetaris data did not match the evidence contract.",
             ) from error
 
-        dataset["dataset_id"] = "zetaris:" + "+".join(relation_names)
+        dataset["dataset_id"] = "zetaris:" + "+".join(dict.fromkeys(relation_names))
         revision = hashlib.sha256(canonical_json_bytes(dataset)).hexdigest()
         connection_metadata = dict(self.connection_metadata)
         if query_diagnostics:
@@ -770,47 +915,49 @@ class ZetarisSourceAdapter:
             simulated=False,
         )
 
-    def _decode_source_row(self, row: dict[str, Any]) -> dict[str, Any]:
-        """Map a transport row to the source record; other sources use identity mapping."""
-        return row
-
 
 class ZetarisContractRepositoryAdapter(ZetarisSourceAdapter):
     source_id = "source-contract-repository"
     source_system = "contract_repository"
     category = SourceCategory.CONTRACT
-    record_groups = (("records", 1),)
-
-    def _decode_source_row(self, row: dict[str, Any]) -> dict[str, Any]:
-        return _decode_contract_transport_row(row)
+    record_groups = (("records", "service_agreement", 1),)
 
 
 class ZetarisOperationalCMSAdapter(ZetarisSourceAdapter):
     source_id = "source-operational-cms"
     source_system = "operational_cms"
     category = SourceCategory.OPERATIONAL_CMS
-    record_groups = (("policies", 2), ("classifications", 4))
+    record_groups = (
+        ("policies", "cms_policy", 2),
+        ("classifications", "cms_classification", 4),
+    )
 
 
 class ZetarisMaintenanceIncidentAdapter(ZetarisSourceAdapter):
     source_id = "source-maintenance-incident-registry"
     source_system = "maintenance_incident_registry"
     category = SourceCategory.OPERATIONS
-    record_groups = (("events", 4), ("notice_records", 3))
+    record_groups = (
+        ("events", "maintenance_event", 4),
+        ("notice_records", "notice_record", 3),
+    )
 
 
 class ZetarisReleaseRegistryAdapter(ZetarisSourceAdapter):
     source_id = "source-release-registry"
     source_system = "release_registry"
     category = SourceCategory.RELEASE
-    record_groups = (("releases", 2),)
+    record_groups = (("releases", "adapter_deployment", 2),)
 
 
 class ZetarisBillingActionAdapter(ZetarisSourceAdapter):
     source_id = "source-billing-calculation-and-action"
     source_system = "billing_calculation_and_action"
     category = SourceCategory.BILLING_ACTION
-    record_groups = (("calculations", 1), ("proposed_actions", 1))
+    record_groups = (
+        ("calculations", "billing_calculation", 1),
+        ("proposed_actions", "proposed_action", 1),
+    )
 
 
 ZETARIS_ADAPTER_GROUPS: tuple[tuple[type[ZetarisSourceAdapter], dict[str, str]], ...] = (
@@ -839,6 +986,17 @@ ZETARIS_ADAPTER_GROUPS: tuple[tuple[type[ZetarisSourceAdapter], dict[str, str]],
     ),
 )
 
+_SHARED_MAIN_CATEGORIES = frozenset(
+    {
+        "cms_policy",
+        "cms_classification",
+        "maintenance_event",
+        "notice_record",
+        "billing_calculation",
+        "proposed_action",
+    }
+)
+
 
 def adapters_from_environment(
     config: ZetarisConfig,
@@ -859,14 +1017,56 @@ def adapters_from_environment(
     if missing:
         raise ValueError("Missing Zetaris registered-relation configuration: " + ", ".join(missing))
     transport = client or ZetarisGatewayProxyAdapter(config)
-    adapters: list[ZetarisSourceAdapter] = []
+    relation_category_specs: dict[str, dict[str, tuple[str, str, int]]] = {}
+    bindings_by_adapter: list[
+        tuple[type[ZetarisSourceAdapter], tuple[RecordGroupBinding, ...]]
+    ] = []
+    category_relations: dict[str, set[str]] = {}
+    contract_relation = values["CEREV_ZETARIS_CONTRACT_RECORDS_TABLE"].strip()
     for adapter_type, groups in ZETARIS_ADAPTER_GROUPS:
         bindings = tuple(
-            RecordGroupBinding(group, values[variable].strip(), expected_count)
-            for group, expected_count in adapter_type.record_groups
+            RecordGroupBinding(group, values[variable].strip(), count, category)
+            for group, category, count in adapter_type.record_groups
             for variable in (groups[group],)
         )
-        adapters.append(adapter_type(transport, config, bindings))
+        bindings_by_adapter.append((adapter_type, bindings))
+        for binding in bindings:
+            category = binding.record_category
+            assert category is not None
+            relation_category_specs.setdefault(binding.table_name, {})[category] = (
+                adapter_type.source_id,
+                adapter_type.source_system,
+                binding.expected_count,
+            )
+            category_relations.setdefault(category, set()).add(binding.table_name)
+
+    possible_main_relations = {
+        relation
+        for category in _SHARED_MAIN_CATEGORIES
+        for relation in category_relations.get(category, set())
+    }
+    if len(possible_main_relations) == 1 and all(
+        category_relations.get(category) == possible_main_relations
+        for category in _SHARED_MAIN_CATEGORIES
+    ):
+        main_relation = next(iter(possible_main_relations))
+        if main_relation != contract_relation:
+            relation_category_specs[main_relation]["service_agreement"] = (
+                ZetarisContractRepositoryAdapter.source_id,
+                ZetarisContractRepositoryAdapter.source_system,
+                1,
+            )
+
+    adapters: list[ZetarisSourceAdapter] = []
+    for adapter_type, bindings in bindings_by_adapter:
+        adapters.append(
+            adapter_type(
+                transport,
+                config,
+                bindings,
+                relation_category_specs=relation_category_specs,
+            )
+        )
     return tuple(adapters)
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import tempfile
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -340,7 +340,14 @@ def _load_pinned_package(
         fixture_dir = Path(temporary)
         for filename, dataset in grouped.items():
             (fixture_dir / filename).write_bytes(canonical_json_bytes(dataset))
-        package = load_canonical_evidence_package(fixture_dir)
+        collection_metadata = snapshot.get("collection")
+        if not isinstance(collection_metadata, Mapping) or not isinstance(
+            collection_metadata.get("method"), str
+        ):
+            raise ReceiptError("Pinned collection metadata is malformed.")
+        package = load_canonical_evidence_package(
+            fixture_dir, collection_method=collection_metadata["method"]
+        )
     actual_by_id = {record.evidence_id: record for record in package.records}
     if set(actual_by_id) != set(expected_hashes):
         raise ReceiptError(
@@ -356,6 +363,36 @@ def _load_pinned_package(
         for evidence_id, expected_hash in sorted(expected_hashes.items())
     )
     expected_sources = snapshot.get("sources")
+    if not isinstance(expected_sources, (tuple, list)) or len(expected_sources) != len(
+        package.sources
+    ):
+        raise ReceiptError("Pinned source inventory is malformed.")
+    expected_by_id: dict[str, Mapping[str, Any]] = {}
+    for expected_source in expected_sources:
+        if not isinstance(expected_source, Mapping):
+            raise ReceiptError("Pinned source inventory entries must be objects.")
+        source_id = expected_source.get("source_id")
+        if not isinstance(source_id, str) or source_id in expected_by_id:
+            raise ReceiptError("Pinned source inventory IDs are missing or duplicated.")
+        expected_by_id[source_id] = expected_source
+
+    reconstructed_sources = []
+    for source in package.sources:
+        expected_source = expected_by_id.get(source.source_id)
+        if expected_source is None:
+            raise ReceiptError(
+                "Pinned source inventory differs from reconstructed source metadata."
+            )
+        expected_core = dict(expected_source)
+        expected_provenance = expected_core.pop("collection_provenance", {})
+        if not isinstance(expected_provenance, Mapping):
+            raise ReceiptError("Pinned source collection provenance is malformed.")
+        if canonical_json_bytes(expected_core) != canonical_json_bytes(source.to_dict()):
+            raise ReceiptError(
+                "Pinned source inventory differs from reconstructed source metadata."
+            )
+        reconstructed_sources.append(replace(source, collection_provenance=expected_provenance))
+    package = replace(package, sources=tuple(reconstructed_sources))
     actual_sources = [source.to_dict() for source in package.sources]
     if canonical_json_bytes(expected_sources) != canonical_json_bytes(actual_sources):
         raise ReceiptError("Pinned source inventory differs from reconstructed source metadata.")
