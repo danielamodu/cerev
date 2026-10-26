@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
+from decimal import Decimal
 from email.message import Message
+from io import BytesIO
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -21,18 +24,28 @@ from cerev.source_adapters import CollectionStatus, EvidenceCollector
 from cerev.zetaris import (
     ZetarisClientError,
     ZetarisConfig,
+    ZetarisGatewayProxyAdapter,
     ZetarisHttpClient,
+    ZetarisQueryResult,
+    _extract_rows,
     adapters_from_environment,
 )
 from tests.test_coordinator import FIXTURE_DIR, NOW
 
 
-def _config(*, rows_path: str = "rows") -> ZetarisConfig:
+def _config(
+    *,
+    rows_path: str = "data",
+    gateway_url: str | None = "https://gateway.example.test",
+    engine_id: str | None = None,
+) -> ZetarisConfig:
     return ZetarisConfig(
         "https://zetaris.example.test",
         "42",
         "test-api-key",
         rows_path=rows_path,
+        engine_id=engine_id,
+        gateway_url=gateway_url,
     )
 
 
@@ -50,9 +63,12 @@ def _environment(tmp_path: Path) -> dict[str, str]:
 
 
 class _FixtureQueryClient:
-    def __init__(self, *, fail_relation: str | None = None) -> None:
+    def __init__(
+        self, *, fail_relation: str | None = None, with_http_metadata: bool = False
+    ) -> None:
         self.tables: dict[str, list[dict[str, object]]] = {}
         self.fail_relation = fail_relation
+        self.with_http_metadata = with_http_metadata
         self.queries: list[tuple[str, int]] = []
         files = {
             "contract_repository.json": {"records": "CEREV.CONTRACT_RECORDS"},
@@ -80,13 +96,202 @@ class _FixtureQueryClient:
         relation = sql.split(" FROM ", 1)[1].split(" ORDER BY ", 1)[0]
         if relation == self.fail_relation:
             raise ZetarisClientError("query_failed", "Mocked query failure.")
-        return {"rows": self.tables[relation][:limit]}
+        rows = self.tables[relation][:limit]
+        headers = list(dict.fromkeys(key for row in rows for key in row))
+        if not headers:
+            headers = ["source_record_id"]
+        payload = {
+            "headers": headers,
+            "data": [[row.get(header) for header in headers] for row in rows],
+        }
+        if self.with_http_metadata:
+            return ZetarisQueryResult(
+                payload,
+                200,
+                f"mock-request-{len(self.queries)}",
+                datetime.now(UTC),
+            )
+        return payload
+
+
+class _Response:
+    status = 200
+
+    def __init__(self, payload: bytes, status: int = 200) -> None:
+        self.payload = payload
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def read(self, _size: int = -1):
+        return self.payload
+
+
+def test_gateway_proxy_sends_bounded_documented_request_and_preserves_exact_values(
+    monkeypatch,
+) -> None:
+    captured = {}
+    payload = (
+        b'{"headers":["source_record_id","amount","optional"],'
+        b'"data":[["record-1",12345678901234567890.123400,null]],'
+        b'"total":999,"timeUsed":0.25}'
+    )
+
+    def fake_urlopen(request, *, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return _Response(payload)
+
+    monkeypatch.setattr("cerev.zetaris.urlopen", fake_urlopen)
+    result = ZetarisGatewayProxyAdapter(_config(engine_id="engine-17")).query(
+        "SELECT * FROM CEREV.TEST", limit=3
+    )
+
+    request = captured["request"]
+    assert request.full_url == ("https://gateway.example.test/api/proxy/sql-editor/sqls/run-query")
+    headers = {key.lower(): value for key, value in request.header_items()}
+    assert headers["authorization"] == "Bearer test-api-key"
+    assert headers["x-org-id"] == "42"
+    assert headers["content-type"] == "application/json"
+    assert headers["x-request-id"] == result.request_id
+    assert captured["timeout"] == 30
+    assert json.loads(request.data) == {
+        "sql": "SELECT * FROM CEREV.TEST",
+        "limit": 3,
+        "engineId": "engine-17",
+    }
+    assert isinstance(result.retrieved_at, datetime)
+    assert result.payload["data"] == [["record-1", Decimal("12345678901234567890.123400"), None]]
+    assert result.payload["total"] == 999
+    assert result.payload["timeUsed"] == Decimal("0.25")
+
+
+def test_gateway_proxy_omits_unconfigured_engine_id_and_accepts_empty_results(monkeypatch) -> None:
+    captured = {}
+
+    def fake_urlopen(request, *, timeout):
+        captured["body"] = json.loads(request.data)
+        captured["request_id"] = request.get_header("X-request-id")
+        captured.setdefault("request_ids", []).append(captured["request_id"])
+        return _Response(b'{"headers":[],"data":[],"total":0,"timeUsed":0}')
+
+    monkeypatch.setattr("cerev.zetaris.urlopen", fake_urlopen)
+    client = ZetarisGatewayProxyAdapter(_config(engine_id=None))
+
+    empty = client.query("SELECT * FROM CEREV.EMPTY", limit=1)
+    client.query("SELECT * FROM CEREV.EMPTY", limit=1)
+
+    assert captured["body"] == {"sql": "SELECT * FROM CEREV.EMPTY", "limit": 1}
+    assert empty.payload["data"] == []
+    assert captured["request_ids"][0] != captured["request_ids"][1]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"[]",
+        b'{"headers":["id"]}',
+        b'{"data":[]}',
+        b'{"headers":["id","ID"],"data":[]}',
+        b'{"headers":[" "],"data":[]}',
+        b'{"headers":[" id"],"data":[]}',
+        b'{"headers":["id"],"headers":["other"],"data":[]}',
+        b'{"headers":["id"],"data":[["one","extra"]]}',
+        b'{"headers":[],"data":[["orphan"]]}',
+    ],
+)
+def test_gateway_proxy_rejects_malformed_or_ambiguous_responses(monkeypatch, payload) -> None:
+    monkeypatch.setattr("cerev.zetaris.urlopen", lambda *_args, **_kwargs: _Response(payload))
+
+    with pytest.raises(ZetarisClientError) as error:
+        ZetarisGatewayProxyAdapter(_config()).query("SELECT 1", limit=1)
+
+    assert error.value.code == "invalid_response"
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [(401, "authentication_failed"), (403, "authorization_failed")],
+)
+def test_gateway_proxy_http_errors_are_structured_and_redact_credentials(
+    monkeypatch, status: int, code: str
+) -> None:
+    def reject(request, **_kwargs):
+        raise HTTPError(
+            request.full_url,
+            status,
+            "denied",
+            Message(),
+            BytesIO(b'{"msg":"Not Allowed","token":"test-api-key"}'),
+        )
+
+    monkeypatch.setattr("cerev.zetaris.urlopen", reject)
+
+    with pytest.raises(ZetarisClientError) as error:
+        ZetarisGatewayProxyAdapter(_config()).query("SELECT 1", limit=1)
+
+    assert error.value.code == code
+    assert error.value.http_status == status
+    assert "test-api-key" not in str(error.value)
+    assert "[REDACTED]" in str(error.value)
+
+
+def test_gateway_proxy_timeout_connection_and_bounds(monkeypatch) -> None:
+    def timeout(*_args, **_kwargs):
+        raise TimeoutError("internal timeout detail")
+
+    monkeypatch.setattr("cerev.zetaris.urlopen", timeout)
+    with pytest.raises(ZetarisClientError) as error:
+        ZetarisGatewayProxyAdapter(_config()).query("SELECT 1", limit=1)
+    assert error.value.code == "query_timeout"
+    assert "internal timeout detail" not in str(error.value)
+
+    monkeypatch.setattr(
+        "cerev.zetaris.urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(URLError("private endpoint detail")),
+    )
+    with pytest.raises(ZetarisClientError) as connection_error:
+        ZetarisGatewayProxyAdapter(_config()).query("SELECT 1", limit=1)
+    assert connection_error.value.code == "connection_failed"
+    assert "private endpoint detail" not in str(connection_error.value)
+
+    with pytest.raises(ValueError, match="Query limit"):
+        ZetarisGatewayProxyAdapter(_config()).query("SELECT 1", limit=101)
+    with pytest.raises(ValueError, match="read-only SELECT"):
+        ZetarisGatewayProxyAdapter(_config()).query("SHOW LIGHTNING DATABASES", limit=1)
+    with pytest.raises(ValueError, match="Gateway origin"):
+        ZetarisGatewayProxyAdapter(_config(gateway_url=None))
+
+
+def test_environment_configuration_separates_gateway_and_direct_rest_urls() -> None:
+    values = {
+        "ZETARIS_BASE_URL": "https://gateway.example.test/",
+        "ZETARIS_REST_URL": "https://api.example.test/api/v1.0",
+        "ZETARIS_ORG_ID": "42",
+        "ZETARIS_API_KEY": "secret",
+    }
+
+    config = ZetarisConfig.from_environment(values)
+
+    assert config.gateway_url == "https://gateway.example.test"
+    assert config.base_url == "https://api.example.test"
+    assert "secret" not in repr(config)
 
 
 def test_http_client_uses_documented_auth_headers_and_bounded_query(monkeypatch) -> None:
     captured = {}
+    requests = []
 
     class Response:
+        status = 200
+
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+
         def __enter__(self):
             return self
 
@@ -94,25 +299,72 @@ def test_http_client_uses_documented_auth_headers_and_bounded_query(monkeypatch)
             return None
 
         def read(self):
-            return b'{"rows": []}'
+            return self.payload
 
     def fake_urlopen(request, *, timeout):
-        captured["request"] = request
+        requests.append(request)
         captured["timeout"] = timeout
-        return Response()
+        if request.get_method() == "POST":
+            captured["request"] = request
+            return Response(
+                b'{"records":[{"id":"record-1"}],"pageNumber":1,'
+                b'"pageLimit":5,"totalCount":1,"totalPages":1,"queryToken":"opaque"}'
+            )
+        return Response(b"")
 
     monkeypatch.setattr("cerev.zetaris.urlopen", fake_urlopen)
     result = ZetarisHttpClient(_config()).query("SELECT * FROM CEREV.TEST LIMIT 5", limit=5)
 
     request = captured["request"]
-    assert request.full_url == ("https://zetaris.example.test/api/proxy/sql-editor/sqls/run-query")
+    assert request.full_url == "https://zetaris.example.test/api/v1.0/query/sql/start"
     headers = {key.lower(): value for key, value in request.header_items()}
     assert headers["authorization"] == "Bearer test-api-key"
     assert headers["x-org-id"] == "42"
     assert headers["x-request-id"]
-    assert json.loads(request.data) == {"sql": "SELECT * FROM CEREV.TEST LIMIT 5", "limit": 5}
+    assert json.loads(request.data) == {
+        "select": "SELECT * FROM CEREV.TEST LIMIT 5",
+        "pageLimit": 5,
+    }
     assert captured["timeout"] == 30
-    assert result == {"rows": []}
+    assert isinstance(result, ZetarisQueryResult)
+    assert result.http_status == 200
+    assert result.request_id
+    assert result.payload == {
+        "records": [{"id": "record-1"}],
+        "headers": ["id"],
+        "data": [["record-1"]],
+        "total_count": 1,
+        "total_pages": 1,
+        "page_limit": 5,
+    }
+    assert requests[1].get_method() == "DELETE"
+    assert requests[1].full_url.endswith("/api/v1.0/query/sql/close/opaque")
+    request_ids = [
+        request.get_header("X-request-id") or request.get_header("X-Request-Id")
+        for request in requests
+    ]
+    assert len(set(request_ids)) == len(requests)
+
+
+def test_documented_data_headers_shape_maps_columns_and_rejects_partial_rows() -> None:
+    response = {
+        "headers": ["source_record_id", "source_version", "event_at"],
+        "data": [["native-1", "rev-7", "2026-01-02T03:04:05Z"]],
+    }
+    row = _extract_rows(response, "data")[0]
+    assert list(row) == ["source_record_id", "source_version", "event_at"]
+    assert row == {
+        "source_record_id": "native-1",
+        "source_version": "rev-7",
+        "event_at": "2026-01-02T03:04:05Z",
+    }
+    with pytest.raises(ZetarisClientError, match="width does not match"):
+        _extract_rows(
+            {"headers": ["id", "version"], "data": [["native-1"]]},
+            "data",
+        )
+    with pytest.raises(ZetarisClientError, match="unique column names"):
+        _extract_rows({"headers": ["id", "id"], "data": [["a", "b"]]}, "data")
 
 
 def test_http_auth_and_timeout_errors_are_structured_and_do_not_leak_key(monkeypatch) -> None:
@@ -135,7 +387,7 @@ def test_http_auth_and_timeout_errors_are_structured_and_do_not_leak_key(monkeyp
 
 
 def test_five_logical_sources_collect_through_normal_canonical_pipeline(tmp_path: Path) -> None:
-    client = _FixtureQueryClient()
+    client = _FixtureQueryClient(with_http_metadata=True)
     adapters = adapters_from_environment(_config(), _environment(tmp_path), client=client)
     collection = EvidenceCollector(adapters).collect()
 
@@ -145,6 +397,10 @@ def test_five_logical_sources_collect_through_normal_canonical_pipeline(tmp_path
     assert len(collection.source_statuses) == 5
     assert all(item.status == CollectionStatus.AVAILABLE for item in collection.source_statuses)
     assert all(not item.simulated for item in collection.source_statuses)
+    assert all(
+        item.connection_metadata["query_diagnostics"][0]["http_status"] == 200
+        for item in collection.source_statuses
+    )
     assert len(client.queries) == 8
     assert all(
         limit <= 5 and "ORDER BY source_record_id LIMIT" in sql for sql, limit in client.queries
@@ -156,8 +412,16 @@ def test_five_logical_sources_collect_through_normal_canonical_pipeline(tmp_path
     assert package.records[0].source_record_id
     assert package.records[0].content_sha256
     assert package.sources[0].dataset_id.startswith("zetaris:CEREV.")
+    source_provenance = package.sources[0].to_dict()["collection_provenance"]
+    assert source_provenance["retrieved_at"]
+    assert source_provenance["returned_record_count"] == 1
+    assert source_provenance["request_observations"][0]["request_id"] == "mock-request-1"
+    assert source_provenance["revision"]["native"] is False
+    assert source_provenance["source_native_observation_timestamp"] == "unavailable"
     calculation = evaluate_and_create_receipt(package, created_at=NOW)
     assert calculation.receipt.disposition == Disposition.BLOCK
+    receipt_source = calculation.receipt.evidence_snapshot["sources"][0]
+    assert receipt_source["collection_provenance"]["global_snapshot_consistency"] == "not_claimed"
     assert package.reference_calculation.credit_cents == 1_920_000
     proposed = next(record for record in package.records if record.record_type == "proposed_action")
     assert proposed.payload["amount_cents"] == 480_000
@@ -227,6 +491,28 @@ def test_malformed_and_duplicate_rows_fail_closed(
     assert contract_status.error.code == expected_code
 
 
+def test_gateway_source_adapter_detects_rows_truncated_or_over_contract_count(
+    tmp_path: Path,
+) -> None:
+    client = _FixtureQueryClient()
+    row = dict(client.tables["CEREV.CONTRACT_RECORDS"][0])
+    row["source_record_id"] = "unexpected-extra"
+    client.tables["CEREV.CONTRACT_RECORDS"].append(row)
+    adapters = adapters_from_environment(_config(), _environment(tmp_path), client=client)
+
+    collection = EvidenceCollector(adapters).collect()
+
+    assert collection.package is None
+    failed = next(
+        status
+        for status in collection.source_statuses
+        if status.identity.source_id == "source-contract-repository"
+    )
+    assert failed.status == CollectionStatus.UNAVAILABLE
+    assert failed.error is not None
+    assert failed.error.code == "source_schema_invalid"
+
+
 def test_zetaris_mode_never_falls_back_and_sample_mode_uses_normal_collector(
     tmp_path: Path,
 ) -> None:
@@ -261,6 +547,46 @@ def test_zetaris_mode_never_falls_back_and_sample_mode_uses_normal_collector(
     assert result.package.reference_calculation.credit_cents == 1_920_000
     receipt = evaluate_and_create_receipt(result.package, created_at=NOW).receipt
     assert receipt.disposition == Disposition.BLOCK
+
+
+def test_live_mode_uses_gateway_adapter_and_requires_explicit_separate_urls() -> None:
+    values = {
+        "CEREV_EVIDENCE_MODE": EvidenceMode.ZETARIS.value,
+        "ZETARIS_BASE_URL": "https://gateway.example.test",
+        "ZETARIS_REST_URL": "https://api.example.test/api/v1.0",
+        "ZETARIS_ORG_ID": "42",
+        "ZETARIS_API_KEY": "test-key",
+        **_environment(Path(".")),
+    }
+
+    provider = evidence_provider_from_environment(values)
+
+    assert provider.backend == "zetaris_gateway_proxy"
+    assert all(
+        isinstance(adapter.client, ZetarisGatewayProxyAdapter)
+        for adapter in provider._collector.adapters
+    )
+    del values["ZETARIS_REST_URL"]
+    with pytest.raises(ValueError, match="ZETARIS_REST_URL"):
+        evidence_provider_from_environment(values)
+
+
+def test_provider_loads_dotenv_and_preserves_process_environment_precedence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    store_dir = tmp_path / "dotenv-sample-store"
+    (tmp_path / ".env").write_text(
+        f"CEREV_EVIDENCE_MODE=zetaris\nCEREV_SAMPLE_STORE_DIR={store_dir}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CEREV_EVIDENCE_MODE", EvidenceMode.SAMPLE.value)
+    monkeypatch.delenv("CEREV_SAMPLE_STORE_DIR", raising=False)
+
+    provider = evidence_provider_from_environment()
+
+    assert provider.backend == "phase8_sqlite_simulation"
+    assert len(tuple(store_dir.glob("*.sqlite3"))) == 5
 
 
 def test_protected_sample_demo_keeps_synthetic_permit_path() -> None:

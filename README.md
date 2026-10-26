@@ -16,9 +16,9 @@ Phase 10 adds a single-host SQLite durability layer around that existing coordin
 
 Phase 11 adds append-only, typed shared reasoning memory to the same SQLite database. Claims, competing hypotheses, objections, proposed resolutions, evidence references, requests, proposals, and deterministic findings are linked by typed relationships and scoped to a workflow. The coordinator supplies role-scoped memory views to all three reasoning roles and persists findings between cycles, so follow-up investigation can inspect prior claims and objections. Memory batches and lifecycle changes are committed with their history event and checkpoint in one transaction; schema version 1 databases migrate to version 2. This is local single-host storage, not Meterless World Model or a multi-agent service integration. Memory informs reasoning but does not change evidence validation, policy, permit, or execution authority.
 
-Phase 12 adds a read-only Zetaris UI-proxy client and five logical source adapters that feed the existing `EvidenceCollector` and canonical evidence pipeline. Sample and Zetaris modes are selected explicitly; live failures never fall back to local data. The adapter and collector paths are mock tested, and the sample path remains covered. Live authentication, response shape, registered datasets, and cross-source queries have **not** been verified: no cluster endpoint, organization ID, API key, response mapping, or canonical registered relations are configured in this checkout. This is not yet a live Zetaris integration proof.
+Phase 12.1 adds a distinct read-only Zetaris Gateway SQL proxy transport and injects it into the existing five-source adapters. Sample and Gateway modes are selected explicitly; live failures never fall back to local data. Live Gateway authentication and the response envelope were verified against the managed AWS cluster with `SELECT 1` and two unrelated sample relations. The eight canonical SLA relation bindings remain unset, so CEREV has not yet collected a live canonical evidence package and this is not Phase 12 live acceptance.
 
-Phase 6 permits use Ed25519 signatures over canonical, action-specific claims and require successful receipt/evidence replay. Phase 7 routes simulated credit operations through a protected adapter, persists nonce and execution state in SQLite, and returns the stored result for exact duplicates. Phase 8 adds five separately addressable local SQLite source stores with per-source retrieval timestamps, revisions, provenance, and explicit partial-failure reporting. These stores are seeded simulations, not production systems. Phase 12's Zetaris adapter is implemented but has not been live verified. The execution target remains local and simulated; this is not real payment execution. Production key custody and revocation remain out of scope. Receipts and signatures do not authenticate the truthfulness of upstream sources. No live external evidence source, Nemotron, PostgreSQL, or LLM integration is verified.
+Phase 6 permits use Ed25519 signatures over canonical, action-specific claims and require successful receipt/evidence replay. Phase 7 routes simulated credit operations through a protected adapter, persists nonce and execution state in SQLite, and returns the stored result for exact duplicates. Phase 8 adds five separately addressable local SQLite source stores with per-source retrieval timestamps, revisions, provenance, and explicit partial-failure reporting. These stores are seeded simulations, not production systems. Phase 12.1 has a live-verified Gateway transport, but canonical relation mapping and live package acceptance remain pending. The execution target remains local and simulated; this is not real payment execution. Production key custody and revocation remain out of scope. Receipts and signatures do not authenticate the truthfulness of upstream sources. No Nemotron, PostgreSQL, or LLM integration is verified.
 
 ## Development
 
@@ -45,14 +45,14 @@ ruff format --check .
 
 Run the local protected-execution demonstration with `cerev-protected-demo` or `python -m cerev.demo`.
 
-The runtime dependency is `cryptography` for Ed25519. The evidence-provider factory reads explicit environment variables but does not parse `.env` files; use [`.env.example`](.env.example) as a local configuration reference. Never put credentials or private keys in the repository.
+Runtime dependencies are `cryptography` for Ed25519 and `python-dotenv` for explicit local `.env` loading by the evidence-provider factory. Existing process environment variables take precedence. Use [`.env.example`](.env.example) as a local configuration reference; `.env` is ignored by Git. Never put credentials or private keys in the repository.
 
 ## Module map
 
 - `cerev/reference.py`: deterministic Contract V4 SLA reference calculation.
 - `cerev/evidence.py`: source records, timestamp semantics, provenance, and evidence packages.
 - `cerev/source_adapters.py`: independent local source stores, retrieval metadata, structured failures, and fail-closed collection.
-- `cerev/zetaris.py`: read-only Zetaris UI-proxy HTTP client and five canonical logical source adapters; response mapping must be confirmed against a live cluster.
+- `cerev/zetaris.py`: separate direct REST and Gateway proxy transports plus five canonical logical source adapters; live canonical evidence remains pending.
 - `cerev/orchestration.py`: Phase 9.1 role contracts, provenance-bound citations, evolving case context, proposal bindings, and bounded state transitions; no agent behavior or provider integration.
 - `cerev/evidence_provider.py`: scoped, bounded read-only provider protocol, explicit SAMPLE/Zetaris mode selection, and no-fallback provider wiring.
 - `cerev/coordinator.py`: Phase 9.2 multi-role coordination, deterministic read-only tools, verification feedback loop, fail-closed outcomes, and hash-linked run trace. No LLM, external provider, permit, or execution capability is exposed.
@@ -75,4 +75,4 @@ Phase 10 persistence, checkpointing, concurrency, recovery, trace integrity, and
 
 Phase 11 memory objects, relationship semantics, role access, coordinator feedback, atomic persistence, migration, and limitations are described in [docs/shared-reasoning-memory.md](docs/shared-reasoning-memory.md).
 
-Phase 12 Zetaris request contract, relation mapping, source normalization, explicit modes, mock verification, live blockers, and limitations are described in [docs/zetaris-integration.md](docs/zetaris-integration.md).
+Phase 12 direct REST and source mapping history is described in [docs/zetaris-integration.md](docs/zetaris-integration.md). The Phase 12.1 Gateway contract, live smoke results, provenance, and canonical-relation blockers are described in [docs/zetaris-gateway-proxy.md](docs/zetaris-gateway-proxy.md).
