@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -13,6 +14,7 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 from cerev.demo import run_demo
+from cerev.evidence import EvidencePackageError, evidence_records_for_source_dataset
 from cerev.evidence_provider import (
     EvidenceLookup,
     EvidenceMode,
@@ -27,6 +29,7 @@ from cerev.zetaris import (
     ZetarisGatewayProxyAdapter,
     ZetarisHttpClient,
     ZetarisQueryResult,
+    _decode_contract_transport_row,
     _extract_rows,
     adapters_from_environment,
 )
@@ -51,7 +54,9 @@ def _config(
 
 def _environment(tmp_path: Path) -> dict[str, str]:
     return {
-        "CEREV_ZETARIS_CONTRACT_RECORDS_TABLE": "CEREV.CONTRACT_RECORDS",
+        "CEREV_ZETARIS_CONTRACT_RECORDS_TABLE": (
+            "cerev_contract_records_v1.cerev_contract_records_v1"
+        ),
         "CEREV_ZETARIS_CMS_POLICIES_TABLE": "CEREV.CMS_POLICIES",
         "CEREV_ZETARIS_CMS_CLASSIFICATIONS_TABLE": "CEREV.CMS_CLASSIFICATIONS",
         "CEREV_ZETARIS_MAINTENANCE_EVENTS_TABLE": "CEREV.MAINTENANCE_EVENTS",
@@ -71,7 +76,6 @@ class _FixtureQueryClient:
         self.with_http_metadata = with_http_metadata
         self.queries: list[tuple[str, int]] = []
         files = {
-            "contract_repository.json": {"records": "CEREV.CONTRACT_RECORDS"},
             "operational_cms.json": {
                 "policies": "CEREV.CMS_POLICIES",
                 "classifications": "CEREV.CMS_CLASSIFICATIONS",
@@ -86,6 +90,13 @@ class _FixtureQueryClient:
                 "proposed_actions": "CEREV.PROPOSED_ACTIONS",
             },
         }
+        transport_rows = json.loads(
+            (
+                Path(__file__).resolve().parents[1]
+                / "provisioning/zetaris/zetaris-upload/contracts.transport-v1.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.tables["cerev_contract_records_v1.cerev_contract_records_v1"] = transport_rows
         for filename, groups in files.items():
             dataset = json.loads((FIXTURE_DIR / filename).read_text(encoding="utf-8"))
             for group, relation in groups.items():
@@ -411,7 +422,7 @@ def test_five_logical_sources_collect_through_normal_canonical_pipeline(tmp_path
     assert len(package.records) == 18
     assert package.records[0].source_record_id
     assert package.records[0].content_sha256
-    assert package.sources[0].dataset_id.startswith("zetaris:CEREV.")
+    assert package.sources[0].dataset_id.startswith("zetaris:cerev_contract_records_v1.")
     source_provenance = package.sources[0].to_dict()["collection_provenance"]
     assert source_provenance["retrieved_at"]
     assert source_provenance["returned_record_count"] == 1
@@ -454,10 +465,10 @@ def test_one_zetaris_relation_failure_cannot_yield_a_partial_package(tmp_path: P
     ("relation", "mutate", "source_id", "expected_code"),
     [
         (
-            "CEREV.CONTRACT_RECORDS",
+            "cerev_contract_records_v1.cerev_contract_records_v1",
             lambda rows: rows.__setitem__(0, {"payload": "missing native ID"}),
             "source-contract-repository",
-            "source_schema_invalid",
+            "transport_schema_invalid",
         ),
         (
             "CEREV.CMS_CLASSIFICATIONS",
@@ -466,7 +477,7 @@ def test_one_zetaris_relation_failure_cannot_yield_a_partial_package(tmp_path: P
             "duplicate_record",
         ),
         (
-            "CEREV.CONTRACT_RECORDS",
+            "cerev_contract_records_v1.cerev_contract_records_v1",
             lambda rows: rows.pop(),
             "source-contract-repository",
             "source_schema_invalid",
@@ -495,9 +506,9 @@ def test_gateway_source_adapter_detects_rows_truncated_or_over_contract_count(
     tmp_path: Path,
 ) -> None:
     client = _FixtureQueryClient()
-    row = dict(client.tables["CEREV.CONTRACT_RECORDS"][0])
+    row = dict(client.tables["cerev_contract_records_v1.cerev_contract_records_v1"][0])
     row["source_record_id"] = "unexpected-extra"
-    client.tables["CEREV.CONTRACT_RECORDS"].append(row)
+    client.tables["cerev_contract_records_v1.cerev_contract_records_v1"].append(row)
     adapters = adapters_from_environment(_config(), _environment(tmp_path), client=client)
 
     collection = EvidenceCollector(adapters).collect()
@@ -511,6 +522,128 @@ def test_gateway_source_adapter_detects_rows_truncated_or_over_contract_count(
     assert failed.status == CollectionStatus.UNAVAILABLE
     assert failed.error is not None
     assert failed.error.code == "source_schema_invalid"
+
+
+def _transport_row() -> dict[str, str]:
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "provisioning/zetaris/zetaris-upload/contracts.transport-v1.json"
+    )
+    return json.loads(path.read_text(encoding="utf-8"))[0]
+
+
+def _replace_transport_payload(row: dict[str, str], payload: str) -> dict[str, str]:
+    updated = dict(row)
+    updated["payload_json"] = payload
+    updated["payload_sha256"] = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return updated
+
+
+def test_contract_transport_adapter_reconstructs_original_canonical_record() -> None:
+    row = _transport_row()
+    reconstructed = _decode_contract_transport_row(row)
+    expected = json.loads(row["payload_json"])
+
+    assert reconstructed == expected
+    assert reconstructed["effective_period"] == {
+        "end_at": None,
+        "known_applicable_billing_period": "2024-03",
+        "start_at": None,
+    }
+    assert reconstructed["monthly_service_fee_cents"] == 4_800_000
+    assert type(reconstructed["monthly_service_fee_cents"]) is int
+    assert reconstructed["source_native_created_at"] is None
+    assert "delivery_proof" not in reconstructed
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_code"),
+    [
+        (
+            "transport_schema_version",
+            "cerev.contract_record.transport.v2",
+            "transport_schema_unsupported",
+        ),
+        ("logical_source_id", "other-source", "transport_metadata_mismatch"),
+        ("payload_sha256", "0" * 64, "transport_digest_mismatch"),
+    ],
+)
+def test_contract_transport_rejects_bad_envelope_metadata_and_digest(
+    field: str, value: str, expected_code: str
+) -> None:
+    row = _transport_row()
+    row[field] = value
+    with pytest.raises(ZetarisClientError) as error:
+        _decode_contract_transport_row(row)
+    assert error.value.code == expected_code
+
+
+def test_contract_transport_rejects_missing_column_and_invalid_utf8() -> None:
+    missing_column = _transport_row()
+    missing_column.pop("record_category")
+    with pytest.raises(ZetarisClientError, match="missing or unexpected"):
+        _decode_contract_transport_row(missing_column)
+
+    invalid_utf8 = _transport_row()
+    invalid_utf8["payload_json"] = "\ud800"
+    with pytest.raises(ZetarisClientError) as error:
+        _decode_contract_transport_row(invalid_utf8)
+    assert error.value.code == "transport_payload_invalid"
+
+
+def test_contract_transport_rejects_payload_identity_mismatch() -> None:
+    payload = json.loads(_transport_row()["payload_json"])
+    payload["source_native_version"] = "V3"
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    with pytest.raises(ZetarisClientError) as error:
+        _decode_contract_transport_row(_replace_transport_payload(_transport_row(), encoded))
+    assert error.value.code == "transport_metadata_mismatch"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"source_record_id":"a","source_record_id":"b"}',
+        '{"value":NaN}',
+        '{"value":1.25}',
+        "[1,2]",
+    ],
+)
+def test_contract_transport_rejects_non_strict_or_wrong_shape_json(payload: str) -> None:
+    with pytest.raises(ZetarisClientError) as error:
+        _decode_contract_transport_row(_replace_transport_payload(_transport_row(), payload))
+    assert error.value.code == "transport_payload_invalid"
+
+
+def test_contract_transport_evidence_validation_uses_existing_canonical_rules() -> None:
+    row = _transport_row()
+    record = _decode_contract_transport_row(row)
+    evidence = evidence_records_for_source_dataset(
+        "source-contract-repository",
+        {
+            "source_system": "contract_repository",
+            "dataset_id": "zetaris:cerev_contract_records_v1.cerev_contract_records_v1",
+            "records": [record],
+        },
+    )
+
+    assert len(evidence) == 1
+    assert evidence[0].source_record_id == "contract-client-a-v4"
+    assert evidence[0].version_id == "V4"
+    assert evidence[0].to_dict()["payload"] == record
+
+    invalid_record = dict(record)
+    invalid_record["provenance"] = dict(record["provenance"])
+    invalid_record["provenance"]["source_system"] = "wrong-source"
+    with pytest.raises(EvidencePackageError):
+        evidence_records_for_source_dataset(
+            "source-contract-repository",
+            {
+                "source_system": "contract_repository",
+                "dataset_id": "bad",
+                "records": [invalid_record],
+            },
+        )
 
 
 def test_zetaris_mode_never_falls_back_and_sample_mode_uses_normal_collector(

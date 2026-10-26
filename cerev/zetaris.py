@@ -27,6 +27,28 @@ from cerev.source_adapters import (
 
 MAX_QUERY_ROWS = 100
 MAX_GATEWAY_RESPONSE_BYTES = 5 * 1024 * 1024
+CONTRACT_TRANSPORT_SCHEMA = "cerev.contract_record.transport.v1"
+CONTRACT_TRANSPORT_COLUMNS = frozenset(
+    {
+        "transport_schema_version",
+        "logical_source_id",
+        "source_system",
+        "source_record_id",
+        "record_category",
+        "dataset_kind",
+        "source_native_version",
+        "payload_sha256",
+        "payload_json",
+    }
+)
+_CONTRACT_TRANSPORT_IDENTITY = {
+    "logical_source_id": "source-contract-repository",
+    "source_system": "contract_repository",
+    "source_record_id": "contract-client-a-v4",
+    "record_category": "service_agreement",
+    "dataset_kind": "canonical_simulation_fixture",
+    "source_native_version": "V4",
+}
 _IDENTIFIER_PART = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 _ORIGIN = re.compile(r"^https://[^/?#]+$")
 
@@ -46,6 +68,106 @@ class ZetarisClientError(RuntimeError):
         self.code = code
         self.http_status = http_status
         self.request_id = request_id
+
+
+def _decode_contract_transport_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Verify and reconstruct the one supported canonical contract envelope."""
+    if set(row) != CONTRACT_TRANSPORT_COLUMNS:
+        raise ZetarisClientError(
+            "transport_schema_invalid",
+            "Contract transport row has missing or unexpected envelope columns.",
+        )
+    for column in CONTRACT_TRANSPORT_COLUMNS - {"payload_sha256", "payload_json"}:
+        if not isinstance(row[column], str):
+            raise ZetarisClientError(
+                "transport_schema_invalid",
+                f"Contract transport column {column} must be a string.",
+            )
+    if not isinstance(row["payload_sha256"], str) or not re.fullmatch(
+        r"[0-9a-f]{64}", row["payload_sha256"]
+    ):
+        raise ZetarisClientError(
+            "transport_schema_invalid", "Contract transport payload digest is invalid."
+        )
+    if not isinstance(row["payload_json"], str):
+        raise ZetarisClientError(
+            "transport_schema_invalid", "Contract transport payload_json must be a string."
+        )
+    if row["transport_schema_version"] != CONTRACT_TRANSPORT_SCHEMA:
+        raise ZetarisClientError(
+            "transport_schema_unsupported", "Contract transport schema version is unsupported."
+        )
+    for field_name, expected in _CONTRACT_TRANSPORT_IDENTITY.items():
+        if row[field_name] != expected:
+            raise ZetarisClientError(
+                "transport_metadata_mismatch",
+                f"Contract transport metadata {field_name} does not match the canonical source.",
+            )
+
+    try:
+        payload_bytes = row["payload_json"].encode("utf-8", errors="strict")
+        payload_text = payload_bytes.decode("utf-8", errors="strict")
+    except UnicodeError as error:
+        raise ZetarisClientError(
+            "transport_payload_invalid", "Contract transport payload is not strict UTF-8."
+        ) from error
+    if hashlib.sha256(payload_bytes).hexdigest() != row["payload_sha256"]:
+        raise ZetarisClientError(
+            "transport_digest_mismatch", "Contract transport payload digest does not match."
+        )
+
+    try:
+        payload = json.loads(
+            payload_text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_json_constant,
+            parse_float=_reject_json_float,
+        )
+    except (json.JSONDecodeError, ValueError, TypeError, RecursionError) as error:
+        raise ZetarisClientError(
+            "transport_payload_invalid", "Contract transport payload is not strict JSON."
+        ) from error
+    if not isinstance(payload, dict):
+        raise ZetarisClientError(
+            "transport_payload_invalid", "Contract transport payload must be a JSON object."
+        )
+    embedded_identity = {
+        "logical_source_id": payload.get("logical_source_id"),
+        "source_system": payload.get("source_system"),
+        "source_record_id": payload.get("source_record_id"),
+        "record_category": payload.get("record_category"),
+        "dataset_kind": payload.get("dataset_kind"),
+        "source_native_version": payload.get("source_native_version"),
+    }
+    for field_name, expected in _CONTRACT_TRANSPORT_IDENTITY.items():
+        if embedded_identity[field_name] != expected:
+            raise ZetarisClientError(
+                "transport_metadata_mismatch",
+                f"Reconstructed contract payload {field_name} does not match envelope metadata.",
+            )
+    if payload.get("record_type") != row["record_category"]:
+        raise ZetarisClientError(
+            "transport_metadata_mismatch",
+            "Reconstructed contract payload record_type does not match envelope metadata.",
+        )
+    return payload
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate JSON object key.")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Non-standard JSON constant {value}.")
+
+
+def _reject_json_float(value: str) -> None:
+    raise ValueError(f"JSON floating-point values are not supported: {value}.")
 
 
 class ZetarisQueryClient(Protocol):
@@ -580,7 +702,8 @@ class ZetarisSourceAdapter:
                     )
                 ids: set[str] = set()
                 group_records: list[dict[str, Any]] = []
-                for row in rows:
+                for raw_row in rows:
+                    row = self._decode_source_row(raw_row)
                     record_id = row.get("source_record_id")
                     if not isinstance(record_id, str) or not record_id.strip():
                         raise ZetarisClientError(
@@ -647,12 +770,19 @@ class ZetarisSourceAdapter:
             simulated=False,
         )
 
+    def _decode_source_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        """Map a transport row to the source record; other sources use identity mapping."""
+        return row
+
 
 class ZetarisContractRepositoryAdapter(ZetarisSourceAdapter):
     source_id = "source-contract-repository"
     source_system = "contract_repository"
     category = SourceCategory.CONTRACT
     record_groups = (("records", 1),)
+
+    def _decode_source_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return _decode_contract_transport_row(row)
 
 
 class ZetarisOperationalCMSAdapter(ZetarisSourceAdapter):

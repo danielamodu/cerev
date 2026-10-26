@@ -358,64 +358,18 @@ def load_canonical_evidence_package(
 
     for definition in _DATASETS:
         dataset = _load_dataset(directory / definition.filename)
-        source_system = _required_text(dataset, "source_system", definition.filename)
-        if source_system != definition.expected_source_system:
-            raise EvidencePackageError(
-                f"{definition.filename} identifies source system {source_system!r}; "
-                f"expected {definition.expected_source_system!r}."
-            )
-        dataset_id = _required_text(dataset, "dataset_id", definition.filename)
-        dataset_records: list[tuple[str, dict[str, Any]]] = []
-        for group_name, record_type, expected_count in definition.record_groups:
-            rows = dataset.get(group_name)
-            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
-                raise EvidencePackageError(
-                    f"{definition.filename} requires a list of records at {group_name!r}."
-                )
-            if len(rows) != expected_count:
-                raise EvidencePackageError(
-                    f"{definition.filename} expected {expected_count} records in {group_name!r}; "
-                    f"found {len(rows)}."
-                )
-            dataset_records.extend((record_type, row) for row in rows)
-
-        record_ids: set[str] = set()
-        for record_type, payload in dataset_records:
-            source_record_id = _required_text(payload, "source_record_id", definition.filename)
-            if source_record_id in record_ids:
-                raise EvidencePackageError(
-                    f"Duplicate source record ID {source_record_id!r} in {definition.filename}."
-                )
-            record_ids.add(source_record_id)
-            _validate_record_provenance(payload, source_system, source_record_id)
-            evidence_id = f"evidence:{definition.source_id}:{source_record_id}"
-            if evidence_id in seen_evidence_ids:
-                raise EvidencePackageError(f"Duplicate stable evidence ID {evidence_id!r}.")
-            seen_evidence_ids.add(evidence_id)
-            timestamps = _extract_timestamps(payload, record_type, evidence_id)
-            version_id = _version_id(payload)
-            records.append(
-                EvidenceRecord(
-                    evidence_id=evidence_id,
-                    source_id=definition.source_id,
-                    source_system=source_system,
-                    dataset_id=dataset_id,
-                    source_record_id=source_record_id,
-                    source_category=definition.category,
-                    record_type=record_type,
-                    version_id=version_id,
-                    establishes=_RECORD_ESTABLISHES[record_type],
-                    does_not_establish=definition.not_authoritative_for,
-                    payload=payload,
-                    timestamps=timestamps,
-                )
-            )
+        source_records = evidence_records_for_source_dataset(definition.source_id, dataset)
+        for record in source_records:
+            if record.evidence_id in seen_evidence_ids:
+                raise EvidencePackageError(f"Duplicate stable evidence ID {record.evidence_id!r}.")
+            seen_evidence_ids.add(record.evidence_id)
+        records.extend(source_records)
 
         versions = tuple(
             sorted(
                 {
                     record.version_id
-                    for record in records
+                    for record in source_records
                     if record.source_id == definition.source_id and record.version_id is not None
                 }
             )
@@ -423,9 +377,9 @@ def load_canonical_evidence_package(
         sources.append(
             EvidenceSource(
                 source_id=definition.source_id,
-                source_system=source_system,
+                source_system=source_records[0].source_system,
                 category=definition.category,
-                dataset_id=dataset_id,
+                dataset_id=source_records[0].dataset_id,
                 authority_description=definition.authority_description,
                 not_authoritative_for=definition.not_authoritative_for,
                 known_versions=versions,
@@ -472,6 +426,71 @@ def load_canonical_evidence_package(
         collection=collection,
         reference_calculation=reference_calculation,
     )
+
+
+def evidence_records_for_source_dataset(
+    source_id: str,
+    dataset: Mapping[str, Any],
+) -> tuple[EvidenceRecord, ...]:
+    """Validate one canonical source dataset and build its evidence records.
+
+    This is the same per-source validation used by the five-dataset package loader.
+    It supports validating a live source independently without implying that a
+    complete EvidencePackage or cross-source decision is available.
+    """
+    definition = next((item for item in _DATASETS if item.source_id == source_id), None)
+    if definition is None:
+        raise EvidencePackageError(f"Unknown canonical evidence source {source_id!r}.")
+    source_system = _required_text(dataset, "source_system", definition.filename)
+    if source_system != definition.expected_source_system:
+        raise EvidencePackageError(
+            f"{definition.filename} identifies source system {source_system!r}; "
+            f"expected {definition.expected_source_system!r}."
+        )
+    dataset_id = _required_text(dataset, "dataset_id", definition.filename)
+    dataset_records: list[tuple[str, dict[str, Any]]] = []
+    for group_name, record_type, expected_count in definition.record_groups:
+        rows = dataset.get(group_name)
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise EvidencePackageError(
+                f"{definition.filename} requires a list of records at {group_name!r}."
+            )
+        if len(rows) != expected_count:
+            raise EvidencePackageError(
+                f"{definition.filename} expected {expected_count} records in {group_name!r}; "
+                f"found {len(rows)}."
+            )
+        dataset_records.extend((record_type, row) for row in rows)
+
+    record_ids: set[str] = set()
+    evidence_records: list[EvidenceRecord] = []
+    for record_type, payload in dataset_records:
+        source_record_id = _required_text(payload, "source_record_id", definition.filename)
+        if source_record_id in record_ids:
+            raise EvidencePackageError(
+                f"Duplicate source record ID {source_record_id!r} in {definition.filename}."
+            )
+        record_ids.add(source_record_id)
+        _validate_record_provenance(payload, source_system, source_record_id)
+        evidence_id = f"evidence:{definition.source_id}:{source_record_id}"
+        timestamps = _extract_timestamps(payload, record_type, evidence_id)
+        evidence_records.append(
+            EvidenceRecord(
+                evidence_id=evidence_id,
+                source_id=definition.source_id,
+                source_system=source_system,
+                dataset_id=dataset_id,
+                source_record_id=source_record_id,
+                source_category=definition.category,
+                record_type=record_type,
+                version_id=_version_id(payload),
+                establishes=_RECORD_ESTABLISHES[record_type],
+                does_not_establish=definition.not_authoritative_for,
+                payload=payload,
+                timestamps=timestamps,
+            )
+        )
+    return tuple(evidence_records)
 
 
 def _collection_note(method: str) -> str:
