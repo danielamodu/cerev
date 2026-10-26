@@ -87,9 +87,17 @@ class EvidenceSource:
     authority_description: str
     not_authoritative_for: tuple[str, ...]
     known_versions: tuple[str, ...]
+    collection_provenance: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "collection_provenance",
+            MappingProxyType(dict(self.collection_provenance)),
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "source_id": self.source_id,
             "source_system": self.source_system,
             "category": self.category.value,
@@ -98,6 +106,9 @@ class EvidenceSource:
             "not_authoritative_for": list(self.not_authoritative_for),
             "known_versions": list(self.known_versions),
         }
+        if self.collection_provenance:
+            result["collection_provenance"] = _thaw_json(self.collection_provenance)
+        return result
 
 
 @dataclass(frozen=True, slots=True)

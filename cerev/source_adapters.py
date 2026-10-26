@@ -7,7 +7,7 @@ import json
 import sqlite3
 import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -438,6 +438,20 @@ class EvidenceCollector:
                         else "zetaris_federated_sql"
                     ),
                 )
+                if not self.simulated:
+                    statuses_by_id = {status.identity.source_id: status for status in statuses}
+                    package = replace(
+                        package,
+                        sources=tuple(
+                            replace(
+                                source,
+                                collection_provenance=_collection_provenance(
+                                    statuses_by_id[source.source_id]
+                                ),
+                            )
+                            for source in package.sources
+                        ),
+                    )
         except (OSError, ReceiptError, ValueError, KeyError, TypeError) as error:
             # A malformed successful response is a collection failure, not an empty source.
             statuses = [
@@ -457,6 +471,29 @@ class EvidenceCollector:
             ]
             return EvidenceCollection(None, tuple(statuses), False, collected_at)
         return EvidenceCollection(package, tuple(statuses), True, collected_at)
+
+
+def _collection_provenance(status: SourceCollectionStatus) -> dict[str, Any]:
+    """Serialize source observation metadata without implying native revisions or snapshots."""
+    metadata = status.connection_metadata
+    return {
+        "backend": metadata.get("backend"),
+        "mode": metadata.get("mode"),
+        "simulated": status.simulated,
+        "logical_relations": list(metadata.get("registered_relations", ())),
+        "retrieved_at": status.retrieved_at.isoformat(),
+        "request_observations": [dict(item) for item in metadata.get("query_diagnostics", ())],
+        "returned_record_count": status.record_count,
+        "revision": {
+            "value": status.source_revision,
+            "kind": metadata.get("source_revision_kind", "cerev_sha256_content_digest"),
+            "native": False,
+        },
+        "source_native_version_fields": "preserved_per_record_when_present",
+        "source_record_timestamps": "preserved_when_present_and_schema_validated",
+        "source_native_observation_timestamp": "unavailable",
+        "global_snapshot_consistency": "not_claimed",
+    }
 
 
 def seed_simulated_source_stores(
