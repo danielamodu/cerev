@@ -2,7 +2,7 @@
 
 Uses the Nightshift provider abstraction (Phase 13.1) for model invocation.
 All four roles produce typed, validated outputs compatible with the existing
-orchestration contracts. No role may authorize or execute actions — that
+orchestration contracts. No role may authorize or execute actions â€” that
 remains the sole authority of the deterministic policy gate.
 
 A mock provider is included for offline testing.
@@ -263,13 +263,9 @@ class _MockConfig:
     organization: str | None = None
 
 
-class _MockNightshiftError(RuntimeError):
+class _MockNightshiftError(NightshiftError):
     def __init__(self, code: str, message: str, *, request_id: str | None = None) -> None:
-        super().__init__(message)
-        self.code = code
-        self.request_id = request_id
-        self.http_status = None
-        self.provider_request_id = None
+        super().__init__(code, message, request_id=request_id)
 
 
 def _build_mock_result(
