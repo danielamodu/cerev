@@ -86,7 +86,7 @@ def _create_mock_roles(
 
 
 def test_scenario_a_canonical_block_full_sponsor_path(tmp_path: Path) -> None:
-    """Full stack: Multi-source -> Meterless -> Nemotron Challenger -> Deterministic BLOCK -> No Permit."""
+    """Full stack: Multi-source -> Meterless -> Nemotron -> Deterministic BLOCK -> No Permit."""
     provider, proposal, request, package = _setup_case(tmp_path)
     cite = _citation_dict(package, 0)
 
@@ -132,7 +132,7 @@ def test_scenario_a_canonical_block_full_sponsor_path(tmp_path: Path) -> None:
                             "objection_id": "obj-nemotron-discrepancy",
                             "claim_id": "claim-canonical",
                             "kind": "MISSING_EVIDENCE",
-                            "explanation": "Nemotron Audit: Proposed $4,800 does not match calculated $19,200.",
+                            "explanation": "Nemotron: Proposed credit mismatch.",
                             "citations": [],
                         }
                     ],
@@ -270,7 +270,7 @@ def test_scenario_b_synthetic_permit_and_protected_execution(tmp_path: Path) -> 
                         {
                             "claim_id": "claim-valid-sla",
                             "kind": "FACT",
-                            "statement": "Qualifying notice verified; downtime aligns with contract.",
+                            "statement": "Qualifying notice verified; downtime aligns with SLA.",
                             "citations": [cite],
                         }
                     ],
@@ -454,7 +454,7 @@ def test_scenario_c_contradictory_evidence_fails_closed(tmp_path: Path) -> None:
                         {
                             "objection_id": "obj-timestamp-conflict",
                             "outcome": "UNRESOLVED",
-                            "rationale": "Cannot resolve timeline discrepancy from current evidence.",
+                            "rationale": "Cannot resolve timeline discrepancy from evidence.",
                         }
                     ],
                 }
@@ -503,9 +503,8 @@ def test_scenario_c_contradictory_evidence_fails_closed(tmp_path: Path) -> None:
 
 
 def test_scenario_d_adversarial_revision_rejected(tmp_path: Path) -> None:
-    """An adversarial proposal revision requires a newly bound evidence package and new verification."""
+    """An adversarial proposal revision requires a newly bound package and new verification."""
     provider, proposal, request, package = _setup_case(tmp_path)
-    cite = _citation_dict(package, 0)
 
     # An unauthorized attempt to revise the amount to $99,999 without new package binding
     sneaky_action = ProposedAction(
@@ -540,7 +539,7 @@ def test_scenario_d_adversarial_revision_rejected(tmp_path: Path) -> None:
 
 
 def test_scenario_e_provider_failure_fails_closed(tmp_path: Path) -> None:
-    """If Nightshift or LLM provider fails, the coordinator transitions to FAILED without authorizing."""
+    """If Nightshift/LLM provider fails, coordinator transitions to FAILED without authorizing."""
     provider, proposal, request, package = _setup_case(tmp_path)
 
     # Empty templates causes _MockNightshiftError
