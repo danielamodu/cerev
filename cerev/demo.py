@@ -264,18 +264,18 @@ def run_interactive_demo() -> None:
     print("\n" + "=" * 80)
     print(" PART 1: CANONICAL SLA INCIDENT SCENARIO (DETERMINISTIC BLOCK)")
     print("=" * 80)
-    print("  Scenario: Client A proposes $48.00 (480,000 cents) SLA credit for March 2024.")
+    print("  Scenario: Client A proposes $4,800.00 (480,000 cents) SLA credit for March 2024.")
     print("  Step 1: Evidence Collection across 5 silos...")
     print("          - Contract repository: SLA Contract V4 (20% credit on availability < 99.5%)")
     print("          - Maintenance incidents: 4 events (423 total outage minutes)")
     print("          - Notice records: 3 notices lacking required 48-hour advance window")
     print("          - Operational CMS: CMS classifications recorded after incident starts")
-    print("          - Billing calculation: Proposed action for $48.00 credit")
+    print("          - Billing calculation: Proposed action for $4,800.00 credit")
 
     print("\n  Step 2: Meterless Engine World Model Projection...")
-    print("          - Active Claims: [FACT] March billing proposed credit is $48.00")
-    print("          - Discrepancy Tracking: Calculated SLA credit is $192.00 vs Proposed $48.00")
-    print("          - Net Discrepancy: -$144.00 (-1,440,000 cents)")
+    print("          - Active Claims: [FACT] March billing proposed credit is $4,800.00")
+    print("          - Discrepancy Tracking: Calculated credit is $19,200.00 vs Proposed $4,800.00")
+    print("          - Net Discrepancy: -$14,400.00 (-1,440,000 cents)")
     print("          - Advisory Guidance: Deterministic policy gate will BLOCK unless revised.")
 
     print("\n  Step 3: Multi-Role Agent Reasoning...")
@@ -287,8 +287,8 @@ def run_interactive_demo() -> None:
     print("\n  Step 4: Authoritative Deterministic Verification...")
     print("          - Independent Reference Availability: 99.052419% (< 99.5% threshold)")
     print("          - Shortfall: 0.447580 points -> 4 complete intervals of 5%")
-    print("          - Authoritative Calculated Credit: $192.00")
-    print("          - Discrepancy: $144.00 mismatch between proposed and authoritative credit.")
+    print("          - Authoritative Calculated Credit: $19,200.00")
+    print("          - Discrepancy: $14,400.00 mismatch between proposed and authoritative credit.")
     print("          >> GATE DISPOSITION: [BLOCK]")
     print("          >> CRYPTOGRAPHIC RECEIPT HASH: sha256:d8a0c24f...")
 
@@ -300,10 +300,10 @@ def run_interactive_demo() -> None:
     print("\n" + "=" * 80)
     print(" PART 2: SYNTHETIC QUALIFYING SCENARIO (PERMIT & PROTECTED EXECUTION)")
     print("=" * 80)
-    print("  Scenario: Qualifying SLA credit with verified written notice and matching $192.00.")
+    print("  Scenario: Qualifying SLA credit with verified written notice and matching $19,200.00.")
     print("  Step 1: Evidence Collection...")
     print("          - Maintenance notice delivered with full 48-hour qualifying written notice.")
-    print("          - Proposed credit amount: $192.00 (exactly matches SLA calculation).")
+    print("          - Proposed credit amount: $19,200.00 (exactly matches SLA calculation).")
 
     print("\n  Step 2: Collaborative Agent Reasoning...")
     print("          - Investigator validates qualifying notice timestamps.")
@@ -311,7 +311,7 @@ def run_interactive_demo() -> None:
     print("          - Operator & Reasoner confirm alignment.")
 
     print("\n  Step 3: Deterministic Policy Gate...")
-    print("          - Reference check: Availability 99.052419%, Credit: $192.00.")
+    print("          - Reference check: Availability 99.052419%, Credit: $19,200.00.")
     print("          - Policy checks: 5/5 PASSED.")
     print("          >> GATE DISPOSITION: [PERMIT]")
 
@@ -322,7 +322,7 @@ def run_interactive_demo() -> None:
 
     print("\n  Step 5: Protected Execution Boundary...")
     print("          - Verification: Permit signature matches trusted public key.")
-    print("          - First Execution Attempt: [SUCCESS] Status: executed | Amount: $192.00")
+    print("          - First Execution Attempt: [SUCCESS] Status: executed | Amount: $19,200.00")
     print("          - Second Execution Attempt (Replay Attack): [REJECTED]")
     print("            >> Idempotent duplicate: returned original result without re-executing.")
 
