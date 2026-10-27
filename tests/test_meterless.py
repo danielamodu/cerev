@@ -57,7 +57,10 @@ from cerev.source_adapters import SOURCE_ADAPTER_TYPES
 from tests.test_four_role_integration import _citation_dict, _setup_case
 
 
-def _make_proposal(workflow_id: str = "wf-test-meterless", amount_cents: int = 4800) -> ActionProposal:
+def _make_proposal(
+    workflow_id: str = "wf-test-meterless",
+    amount_cents: int = 4800,
+) -> ActionProposal:
     return ActionProposal(
         workflow_id=workflow_id,
         proposal_chain_id=f"chain-{workflow_id}",
@@ -131,7 +134,8 @@ def test_simulated_world_model_discrepancy_and_guidance() -> None:
     result = provider.retrieve(lookup)
     assert result.package is not None
 
-    proposal = _make_proposal(workflow_id="wf-wm", amount_cents=480000)  # Proposed $4,800 vs authoritative $19,200
+    # Proposed $4,800 vs authoritative $19,200
+    proposal = _make_proposal(workflow_id="wf-wm", amount_cents=480000)
     case = CaseContext("wf-wm", proposal.proposal_id, (proposal,))
 
     wm = SimulatedMeterlessWorldModel()
@@ -206,7 +210,10 @@ def test_simulated_world_model_contradiction_and_gap_tracking() -> None:
     assert len(projection.contradictions) >= 1
     assert any("obj-1" in c for c in projection.contradictions)
     assert len(projection.evidence_gaps) >= 1
-    assert any("gap-maintenance-notice" in g or "Where is the primary" in g for g in projection.evidence_gaps)
+    assert any(
+        "gap-maintenance-notice" in g or "Where is the primary" in g
+        for g in projection.evidence_gaps
+    )
 
 
 def test_live_world_model_unreachable_fails_closed() -> None:
