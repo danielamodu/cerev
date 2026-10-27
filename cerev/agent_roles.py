@@ -830,6 +830,7 @@ class LLMChallenger:
         )
 
 
+
 class LLMOperator:
     """LLM-backed Operator role adapter."""
 
