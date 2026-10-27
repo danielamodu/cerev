@@ -60,13 +60,19 @@ The MCP Server implements a multi-stage defense-in-depth query firewall before a
   - `EXPLAIN`
 
 ### Stage 3: Relation & Schema Allowlisting
-- Every relation referenced in `FROM`, `JOIN`, `INTO`, or `UPDATE` clauses is extracted and normalized (lowercased, whitespace-trimmed).
+- Every physical relation referenced anywhere in the query is extracted using token-based lexical analysis:
+  - Standard `FROM table` and comma-separated `FROM t1, t2`
+  - All join types (`JOIN`, `INNER JOIN`, `LEFT JOIN`, `FULL JOIN`, `CROSS JOIN`)
+  - Subqueries in `FROM (SELECT ...)`, `WHERE IN (SELECT ...)`, and `WHERE EXISTS (SELECT ...)`
+  - Common Table Expressions (CTEs): local CTE alias names defined in `WITH name AS (...)` are tracked so virtual CTE references are permitted, while all physical relations inside CTE bodies are extracted and verified against the allowlist.
+  - Quoted identifiers with backticks, double quotes, or brackets (`` `schema`.`table` ``)
+  - Un-dotted table names (`secret_table`) are strictly extracted and compared against allowed relation suffixes.
 - Relations must strictly match the pre-configured `allowed_relations` set (configured via `ZETARIS_ALLOWED_RELATIONS`).
 - Access to unscoped tables, unauthorized schemas, or external databases is blocked with a structured `DisallowedRelationError`.
 - System catalog discovery queries (`SHOW TABLES`, `SHOW DATABASES`) without target qualification are rejected or validated to prevent wide discovery of unauthorized databases.
 
-### Stage 4: Row Clamping & Bound Injection
-- Queries with an existing `LIMIT n` clause have their limit evaluated against `ZETARIS_MAX_ROWS`. If `n > ZETARIS_MAX_ROWS`, the limit is clamped to the maximum allowed bound.
+### Stage 4: Row Clamping & SQL Rewriting
+- Queries with an existing `LIMIT n` clause have their limit evaluated against `ZETARIS_MAX_ROWS`. If `n > ZETARIS_MAX_ROWS`, the limit in the SQL text itself is rewritten to `LIMIT <max_rows>`, guaranteeing that the upstream database executes the bounded query.
 - Queries lacking a `LIMIT` clause automatically receive an injected `LIMIT <default_max>` clause appended safely to prevent accidental full-table scans.
 
 ---

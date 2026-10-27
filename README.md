@@ -134,11 +134,11 @@ The integration layer maps CEREV's five logical evidence sources into Zetaris re
 
 | Logical Source ID | CEREV Source Name | Target Relation | Filter / Category | Records |
 |---|---|---|---|---|
-| `source-contract-repository` | Contract Repository | `cerev_contract_records_v1.cerev_contract_records_v1` | `service_agreement` | 1 |
-| `source-operational-cms` | Operational CMS | `cerev_phase124.cerev_main` | `cms_policy`, `cms_classification` | 12 |
-| `source-maintenance-incident-registry` | Maintenance Incident Registry | `cerev_phase124.cerev_main` | `maintenance_event`, `notice_record` | 3 |
-| `source-release-registry` | Release Registry | `cerev_phase124.cerev_releases` | `release_record` | 1 |
-| `source-billing-calculation-and-action` | Billing & Proposed Action | `cerev_phase124.cerev_main` | `billing_calculation`, `proposed_action` | 1 |
+| `source-contract-repository` | Contract Repository | `cerev_contract_records_v1.cerev_contract_records_v1` | `service_agreement` (1) | 1 |
+| `source-operational-cms` | Operational CMS | `cerev_phase124.cerev_main` | `cms_policy` (2), `cms_classification` (4) | 6 |
+| `source-maintenance-incident-registry` | Maintenance Incident Registry | `cerev_phase124.cerev_main` | `maintenance_event` (4), `notice_record` (3) | 7 |
+| `source-release-registry` | Release Registry | `cerev_phase124.cerev_releases` | `adapter_deployment` (2) | 2 |
+| `source-billing-calculation-and-action` | Billing & Proposed Action | `cerev_phase124.cerev_main` | `billing_calculation` (1), `proposed_action` (1) | 2 |
 
 Total Canonical Evidence Records retrieved: **18 records**.
 Deterministic evaluation outcome: Reference credit `$19,200` vs Proposed credit `$4,800` $\rightarrow$ Discrepancy `$14,400` $\rightarrow$ Disposition: **`BLOCK`**.

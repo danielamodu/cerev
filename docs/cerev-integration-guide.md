@@ -35,17 +35,17 @@ flowchart LR
     end
 
     S1 -->|service_agreement (1)| R1
-    S2 -->|cms_policy (7)\ncms_classification (5)| R2
-    S3 -->|maintenance_event (2)\nnotice_record (1)| R2
-    S4 -->|release_record (1)| R3
+    S2 -->|cms_policy (2)\ncms_classification (4)| R2
+    S3 -->|maintenance_event (4)\nnotice_record (3)| R2
+    S4 -->|adapter_deployment (2)| R3
     S5 -->|billing_calculation (1)\nproposed_action (1)| R2
 ```
 
-### Typed Configuration Model (`zetaris_mcp.cerev.config`)
+### Typed Configuration Model (`cerev_mcp.cerev.config`)
 Rather than scattering table names and string constants across adapters, configuration is defined declaratively using typed Pydantic models:
 
 ```python
-from zetaris_mcp.cerev.config import CerevMcpSourceConfig
+from cerev_mcp.cerev.config import CerevMcpSourceConfig
 
 # Loads from environment variables with validation
 config = CerevMcpSourceConfig.from_environment()
@@ -57,13 +57,13 @@ The configuration defines:
    - Category: `service_agreement` (expected count: 1)
 2. `operational_cms`:
    - Relation: `cerev_phase124.cerev_main`
-   - Categories: `cms_policy` (count: 7), `cms_classification` (count: 5)
+   - Categories: `cms_policy` (count: 2), `cms_classification` (count: 4)
 3. `maintenance_incident_registry`:
    - Relation: `cerev_phase124.cerev_main`
-   - Categories: `maintenance_event` (count: 2), `notice_record` (count: 1)
+   - Categories: `maintenance_event` (count: 4), `notice_record` (count: 3)
 4. `release_registry`:
    - Relation: `cerev_phase124.cerev_releases`
-   - Category: `release_record` (count: 1)
+   - Category: `adapter_deployment` (count: 2)
 5. `billing_and_proposed_action`:
    - Relation: `cerev_phase124.cerev_main`
    - Categories: `billing_calculation` (count: 1), `proposed_action` (count: 1)
