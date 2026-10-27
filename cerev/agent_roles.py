@@ -390,8 +390,11 @@ def _parse_citations(
     workflow_id: str,
     proposal_id: str,
     package: EvidencePackage | None = None,
+    allow_empty: bool = False,
 ) -> tuple[EvidenceCitation, ...]:
     if not isinstance(raw, list):
+        if allow_empty and raw is None:
+            return ()
         raise ValueError("Citations must be a list.")
     citations: list[EvidenceCitation] = []
     for index, item in enumerate(raw):
@@ -410,7 +413,7 @@ def _parse_citations(
         if package is not None:
             cite.validate_against(package)
         citations.append(cite)
-    if not citations:
+    if not citations and not allow_empty:
         raise ValueError("At least one evidence citation is required.")
     return tuple(citations)
 
