@@ -65,3 +65,54 @@ def test_cache_lru_eviction():
     status3, entry3 = cache.get("q-3")
     assert status3 == "AVAILABLE"
     assert entry3 is not None
+
+
+def test_cache_concurrency_multithreaded_store_and_get():
+    """Verify thread safety under heavy concurrent store and retrieve operations."""
+    import concurrent.futures
+
+    cache = QueryResultCache(max_size=50, ttl_seconds=300)
+    num_threads = 8
+    items_per_thread = 25
+
+    def worker(thread_idx: int):
+        for i in range(items_per_thread):
+            qid = f"t{thread_idx}-q{i}"
+            cache.store(
+                query_id=qid,
+                request_id=f"req-{qid}",
+                sql=f"SELECT {i}",
+                headers=["col"],
+                rows=[[f"val-{i}"]],
+            )
+            # Retrieve immediately
+            status, entry = cache.get(qid)
+            assert status == "AVAILABLE"
+            assert entry is not None
+            assert entry.rows[0][0] == f"val-{i}"
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = [executor.submit(worker, t) for t in range(num_threads)]
+        for f in concurrent.futures.as_completed(futures):
+            f.result()  # Will re-raise exceptions if any occurred
+
+
+def test_cache_concurrent_slice_pagination():
+    """Verify concurrent reads with offset pagination."""
+    import concurrent.futures
+
+    cache = QueryResultCache(max_size=10, ttl_seconds=300)
+    large_rows = [[f"item-{i}"] for i in range(100)]
+    cache.store("q-paginate", "req-p", "SELECT *", ["val"], large_rows)
+
+    def reader(offset: int, limit: int):
+        status, entry = cache.get("q-paginate")
+        assert status == "AVAILABLE"
+        assert entry is not None
+        sliced = entry.slice_rows(offset, limit)
+        assert len(sliced) == min(limit, max(0, 100 - offset))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(reader, offset, 10) for offset in range(0, 100, 10)]
+        for f in concurrent.futures.as_completed(futures):
+            f.result()

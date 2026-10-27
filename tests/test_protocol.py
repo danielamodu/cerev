@@ -83,3 +83,30 @@ async def test_describe_dataset_tool_invocation(mock_config: ZetarisServerConfig
     assert len(data["columns"]) == 4
     assert data["metadata_status"] == "available"
     assert data["metadata"].get("is_cerev_transport_envelope") is True
+
+
+@pytest.mark.asyncio
+async def test_real_stdio_mcp_client_session():
+    """Verify official MCP stdio client session with real subprocess and protocol handshake."""
+    import sys
+
+    from mcp.client.session import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "cerev_mcp.server"],
+        env=None,
+    )
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            init_res = await session.initialize()
+            assert init_res.server_info.name == "cerev"
+            assert init_res.server_info.version == "0.1.0"
+
+            tools_res = await session.list_tools()
+            tool_names = {t.name for t in tools_res.tools}
+            assert "list_datasets" in tool_names
+            assert "describe_dataset" in tool_names
+            assert "execute_query" in tool_names
+            assert "inspect_query_result" in tool_names
