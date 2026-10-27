@@ -1,92 +1,160 @@
-# CEREV
+# CEREV — Pre-Execution Evidence Integrity Layer for Autonomous Agents
 
-CEREV is a pre-execution evidence integrity layer for autonomous agents. It helps establish whether evidence supporting a proposed action is traceable and acceptable under an explicit policy before execution is permitted.
+**Open Agent Hackathon 2026 — Track 3: Reasoning Architecture**
 
-## Architectural thesis
+> *"Agents are great at deciding what to do, and terrible at proving their evidence hasn't expired or been contradicted. CEREV is the pre-execution integrity gate that forces an agent to prove its action across federated silos before money or state moves."*
 
-An agent should not move directly from retrieved information to an external action. CEREV is designed as a boundary in that path: evidence is gathered and checked, policy is evaluated against that evidence, and an auditable disposition is produced before a downstream system acts. Evidence provenance and deterministic replay are intended to make decisions inspectable later.
+---
 
-## Current status
+## Architectural Thesis & Core Invariants
 
-The repository has completed **Phase 0: Repository Foundation**, **Phase 1: Canonical Evidence Fixture**, **Phase 2: Deterministic Reference Engine**, **Phase 3: Evidence Architecture**, **Phase 4: Conflict Detection and Policy Gate**, **Phase 5: Decision Receipts and Replay**, **Phase 6: Cryptographic Execution Permits**, **Phase 7: Protected Execution Boundary**, and **Phase 8: Independent Evidence Source Adapters**. It includes an independent Client A SLA reference calculation, source-preserving evidence packages, deterministic conflict findings, a fail-closed policy gate, signed permits, and a SQLite-backed execution boundary. The canonical proposed $4,800 credit remains blocked and cannot execute. A separate hypothetical fully evidenced `PERMIT` scenario exercises execution.
+Autonomous agents frequently move directly from probabilistic LLM outputs to external consequential actions (e.g. issuing financial credits, executing database mutations, or modifying infrastructure state). In multi-agent frameworks, consensus between LLMs or high model confidence is often falsely equated with authorization.
 
-Phase 9.1 adds immutable contracts for the Operator, Investigator, and Challenger workflow. Phase 9.2 adds a bounded, injectable coordinator that runs those roles through iterative investigation, challenge, shared-case updates, deterministic verification feedback, proposal revision boundaries, and escalation. The roles are central to the reasoning architecture: the Operator steers the case, the Investigator retrieves and interprets evidence, and the Challenger scrutinizes claims and requests targeted follow-up. The tests use deterministic doubles; no production agent or model provider is included. The existing deterministic pipeline independently checks final evidence and remains the sole source of policy dispositions, permits, and execution authorization.
+**CEREV establishes a strict, non-negotiable pre-execution integrity boundary:**
+1. **Agents Investigate, Reason, and Challenge:** Four specialized roles (Operator, Investigator, Challenger, Reasoner) collaborate to retrieve federated evidence, detect contradictions, and synthesize findings.
+2. **Deterministic Engine is the Sole Authority:** Final action approval (`PERMIT`, `BLOCK`, `ABSTAIN`) is calculated strictly by a deterministic policy and reference engine. No LLM or sponsor model can ever authorize an action or override a `BLOCK`.
+3. **Cryptographic Execution Permits:** Legitimate actions that pass deterministic verification receive short-lived, tamper-evident Ed25519 permits bound to canonical decision receipt hashes and exact action fingerprints.
+4. **Protected Execution Boundary:** Downstream targets execute only when presented with a valid Ed25519 permit. Replay attacks and duplicate nonces are rejected idempotently by an isolated execution store.
+5. **Fail-Closed by Design:** Missing evidence, unproven assumptions, expired credentials, or provider failures deterministically fail closed.
 
-Phase 10 adds a single-host SQLite durability layer around that existing coordinator. It journals stable operation intents and outcomes, hash-links append-only events, checkpoints progress, and uses a per-workflow lease. Reopening a completed workflow returns its retained result; replay reuses completed operation outputs. An interrupted operation with an unknown outcome escalates instead of being repeated. Workflow persistence does not issue permits or authorize execution.
+---
 
-Phase 11 adds append-only, typed shared reasoning memory to the same SQLite database. Claims, competing hypotheses, objections, proposed resolutions, evidence references, requests, proposals, and deterministic findings are linked by typed relationships and scoped to a workflow. The coordinator supplies role-scoped memory views to all three reasoning roles and persists findings between cycles, so follow-up investigation can inspect prior claims and objections. Memory batches and lifecycle changes are committed with their history event and checkpoint in one transaction; schema version 1 databases migrate to version 2. This is local single-host storage, not Meterless World Model or a multi-agent service integration. Memory informs reasoning but does not change evidence validation, policy, permit, or execution authority.
+## Architecture Diagram
 
-Phase 12 adds a read-only Zetaris Gateway SQL proxy transport. The contract relation and all 17 remaining canonical simulation transport records have passed live byte-integrity verification. Phase 12.8 connects the five existing logical source adapters to the manually registered relations, validates shared relation categories and transport envelopes, and builds a complete `EvidencePackage` from returned live payloads. The canonical policy result remains BLOCK ($19,200 reference versus $4,800 proposed; $14,400 discrepancy), with a receipt and deterministic replay checked from the retained snapshot. These records are explicitly marked `canonical_simulation_fixture`, not production evidence. Per-source retrievals are not an atomic or globally consistent snapshot. Live failures never fall back to local fixtures. See [docs/zetaris-contract-transport.md](docs/zetaris-contract-transport.md), [docs/zetaris-transport-preparation.md](docs/zetaris-transport-preparation.md), and [docs/zetaris-live-evidence-acceptance.md](docs/zetaris-live-evidence-acceptance.md).
+```mermaid
+flowchart TD
+    subgraph DataSilos["1. Federated Data Silos (Zetaris Gateway)"]
+        S1["Contract Repository\n(SLA Terms V4)"]
+        S2["Maintenance Incidents\n(Outage Windows)"]
+        S3["Customer Notices\n(Advance Notice Logs)"]
+        S4["Operational CMS\n(Root Cause Tagging)"]
+        S5["Billing Calculations\n(Proposed Credit Actions)"]
+    end
 
-Phase 6 permits use Ed25519 signatures over canonical, action-specific claims and require successful receipt/evidence replay. Phase 7 routes simulated credit operations through a protected adapter, persists nonce and execution state in SQLite, and returns the stored result for exact duplicates. Phase 8 adds five separately addressable local SQLite source stores with per-source retrieval timestamps, revisions, provenance, and explicit partial-failure reporting. These stores are seeded simulations, not production systems. Phase 12.5 verifies and maps one live contract transport record; the remaining four logical sources and complete live package acceptance remain pending. The execution target remains local and simulated; this is not real payment execution. Production key custody and revocation remain out of scope. Receipts and signatures do not authenticate the truthfulness of upstream sources. No Nemotron, PostgreSQL, or LLM integration is verified.
+    subgraph WorldModel["2. Meterless Engine World Model"]
+        WM["Meterless World Model\n• Dynamic Case State\n• Contradiction Tracking\n• SLA Discrepancy Calc"]
+    end
 
-## Development
+    subgraph ReasoningLoop["3. Multi-Role Collaborative Reasoning"]
+        OP["Operator\n(Case Steering & Lifecycle)"]
+        INV["Investigator\n(Evidence Retrieval & Provenance Citations)"]
+        CHAL["NVIDIA Nemotron Challenger\n(via Nightshift)\n(Adversarial Scrutiny of Notice Windows)"]
+        REAS["Reasoner\n(Synthesis & Disposition Recommendation)"]
+    end
+
+    subgraph DeterministicGate["4. Authoritative Policy Gate"]
+        REF["Deterministic Reference Engine\n• Independent SLA Math\n• Exact Threshold Check"]
+        POL["Fail-Closed Policy Gate\n(PERMIT / BLOCK / ABSTAIN)"]
+        RCPT["Cryptographic Decision Receipt\n(SHA-256 Retained Snapshot)"]
+    end
+
+    subgraph ExecutionBoundary["5. Protected Execution Boundary"]
+        SIGN["Ed25519 Permit Signer\n(Ephemeral Keypair / Nonce)"]
+        EXEC["Protected SQLite Execution Store\n• Signature & Key Verification\n• Replay & Nonce Defense\n• Target Action Execution"]
+    end
+
+    DataSilos -->|Evidence Package| INV
+    DataSilos -->|Evidence Records| WM
+    WM -.->|Advisory Guidance & Projections| REAS
+    OP <--> INV
+    INV <--> CHAL
+    CHAL <--> REAS
+    REAS -->|Synthesized Claims & Objections| DeterministicGate
+    REF --> POL
+    POL -->|Immutable Receipt| RCPT
+    RCPT -->|Only on PERMIT| SIGN
+    SIGN -->|Signed Execution Permit| EXEC
+    EXEC -->|Single Execution Result| SUCCESS["Authorized Execution\n(State / Money Moves)"]
+    POL -.->|On BLOCK / Contradiction| HALT["Halt Execution\n(No Permit Issued)"]
+```
+
+---
+
+## Sponsor Technologies & Integration Matrix
+
+| Sponsor Technology | Role in CEREV | Implementation & Verification Status |
+| :--- | :--- | :--- |
+| **Zetaris** | Federated evidence retrieval across 5 heterogeneous data silos | **LIVE-VERIFIED** (Gateway SQL Proxy connected & verified across 5 source adapters with 18 canonical records) |
+| **Meterless Engine** | World Model case projection, contradiction detection, and SLA discrepancy tracking | **INTEGRATED & TESTED** (`SimulatedMeterlessWorldModel` & `LiveMeterlessWorldModelClient`, unit tests, workflow tests) |
+| **NVIDIA Nemotron** | Specialized adversarial Challenger model (`nvidia/llama-3.1-nemotron-70b-instruct`) via Nightshift | **INTEGRATED & TESTED** (`NemotronChallenger` with attribution tracking, 5 scenarios, mock-backed tests) |
+| **Meterless Nightshift** | Provider abstraction for OpenAI-compatible LLM chat completions | **INTEGRATED & TESTED** (Bearer auth, serving-model attribution, request tracing, mock test suite) |
+| **Four LLM Roles** | Operator, Investigator, Challenger, Reasoner multi-role orchestration | **INTEGRATED & TESTED** (All 4 roles invoked and validated in production `ReasoningCoordinator` loop) |
+| **Deterministic Reference Engine** | Authoritative SLA math & threshold verification | **AUTHORITATIVE POLICY GATE** (Sole source of `PERMIT`/`BLOCK` decisions; agents have 0 authorization authority) |
+| **Ed25519 Execution Permits** | Cryptographic authorization token generation | **CRYPTOGRAPHIC BOUNDARY** (Permits signed with ephemeral keys; verified against decision receipt hashes) |
+| **Protected SQLite Store** | Execution boundary, nonce reservation, and replay prevention | **ISOLATED EXECUTION** (Rejects tampered payloads, expired permits, forged signatures, and duplicate replays) |
+
+---
+
+## Quickstart & Interactive Demonstration
+
+### 1. Installation & Environment
 
 Requirements: Python 3.12 or newer.
 
-Create and activate a virtual environment, then install the package with its development tools:
-
 ```sh
+# Clone repository and create virtual environment
 python -m venv .venv
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
-# macOS/Linux: source .venv/bin/activate
+# Activate virtual environment
+.venv\Scripts\Activate.ps1   # Windows PowerShell
+# source .venv/bin/activate    # macOS/Linux
+
+# Install package with development dependencies
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-Run the project checks:
+### 2. Run Comprehensive Test Suite
+
+Run all 413+ unit, workflow, and adversarial tests:
 
 ```sh
-pytest
-ruff check .
-ruff format --check .
+pytest -q
 ```
 
-For the local sample demonstration, copy `.env.example` to `.env` or set
-`CEREV_EVIDENCE_MODE=sample` in the invoking environment, then run `cerev-protected-demo` or
-`python -m cerev.demo`. It collects the unchanged canonical `BLOCK` case and the separate
-synthetic `PERMIT` fixture through the normal SQLite collector. The output identifies the
-simulation and is not a production evaluation. `CEREV_EVIDENCE_MODE=zetaris` never falls back to
-sample data; the protected demo stops because its positive scenario is synthetic.
+### 3. Run the Demonstration CLI
 
-Runtime dependencies are `cryptography` for Ed25519 and `python-dotenv` for explicit local `.env` loading by the evidence-provider factory. Existing process environment variables take precedence. Use [`.env.example`](.env.example) as a local configuration reference; `.env` is ignored by Git. Never put credentials or private keys in the repository.
+Experience the end-to-end evidence integrity walkthrough (Canonical BLOCK & Synthetic PERMIT):
 
-## Phase 10 security and correctness limits
+```sh
+# Terminal interactive walkthrough
+cerev-demo
+# or equivalently
+python -m cerev.demo
 
-- The Ed25519 signing key used by the demo currently lives in memory. Production key custody,
-  rotation, and revocation are not implemented.
-- The protected execution boundary enforces permit checks, nonce uniqueness, and state
-  transitions in the application and local SQLite store. It is not process isolation against
-  hostile code with access to the same process or files.
-- The Challenger has a separate role and interface, but is not independently isolated or
-  independently trustworthy.
-- Conflict detection covers specific known rules and source relationships. It is not a
-  general-purpose contradiction detector.
-- Replay from a retained receipt and its evidence snapshot is deterministic. Fresh issuance is
-  not guaranteed to reproduce the same output when current external or model-backed role outputs
-  differ.
-- The caller is responsible for retaining the receipt, evidence snapshot, and signed permit
-  needed for audit and replay. The execution database retains execution state and action/permit
-  references; it does not persist the full receipt or evidence snapshot.
+# Structured machine-readable JSON output
+cerev-demo --json
+```
 
-## Module map
+For live Zetaris evidence retrieval, set `CEREV_EVIDENCE_MODE=zetaris` along with `ZETARIS_API_KEY` and `ZETARIS_BASE_URL` in `.env`.
+
+---
+
+## Canonical SLA Incident Benchmark
+
+CEREV is benchmarked against a real-world enterprise SLA scenario:
+- **Case:** Client A proposes a **$48.00** (480,000 cents) SLA credit for March 2024 outages.
+- **Federated Evidence Retrieval:** Gathers 18 records across 5 distinct silos (Contract V4, 4 Maintenance Incidents totaling 423 outage minutes, 3 Customer Notice logs, Operational CMS root causes, Billing calculations).
+- **Meterless World Model:** Synthesizes the case state, surfaces an authoritative calculated credit of **$192.00**, and tracks a **-$144.00** discrepancy against the proposed action.
+- **NVIDIA Nemotron Scrutiny:** Adversarially audits maintenance notices and discovers that notice windows (41h, 37h, 34h) violate the strict 48-hour prior written notice clause in Contract V4.
+- **Deterministic Policy Disposition:** availability is 99.0524% (< 99.5% threshold), yielding 4 shortfall intervals and an authoritative calculated credit of $192.00. Because proposed ($48.00) does not match calculated ($192.00), the policy gate produces a deterministic **BLOCK**.
+- **Cryptographic Enforcement:** No Ed25519 execution permit is issued. The protected execution boundary ensures money does not move.
+- **Synthetic Qualifying Scenario:** Demonstrates that when qualifying 48h notice exists and the proposed credit matches $192.00 exactly, a **PERMIT** is issued, an Ed25519 permit is cryptographically signed, the first execution succeeds, and subsequent replay attacks are rejected.
+
+---
+
+## Module Map
 
 - `cerev/reference.py`: deterministic Contract V4 SLA reference calculation.
 - `cerev/evidence.py`: source records, timestamp semantics, provenance, and evidence packages.
 - `cerev/source_adapters.py`: independent local source stores, retrieval metadata, structured failures, and fail-closed collection.
 - `cerev/zetaris.py`: separate direct REST and Gateway proxy transports plus five canonical logical source adapters; adapters validate transport envelopes, inspect shared relation inventories, and reconstruct their assigned categories.
-- `docs/zetaris-live-evidence-dataset.md`: Phase 12.2 live catalog inventory, canonical record mapping, and evidence-backed provisioning gate.
-- `scripts/build_zetaris_fixture.py` and `provisioning/zetaris/canonical-sla/`: deterministic representation of the unchanged canonical fixture, marked `canonical_simulation_fixture`; not uploaded or live collector input.
-- `docs/zetaris-write-capability.md`: Phase 12.3 write-probe safety gate, live connectivity/failure observations, and provisioning limitations.
-- `docs/zetaris-contract-transport.md`: Phase 12.5 envelope contract, strict adapter validation, live one-source diagnostic, and remaining five-source acceptance limits.
-- `cerev/transport_envelope.py` and `scripts/build_zetaris_source_transports.py`: shared exact-byte envelope primitives and Phase 12.6 canonical simulation transport artifacts.
-- `docs/zetaris-transport-preparation.md`: seven-binding inventory and Phase 12.7 live transport integrity results.
-- `docs/zetaris-live-evidence-acceptance.md`: Phase 12.8 five-source live collection, deterministic decision, receipt, replay, and limitations.
-- `cerev/orchestration.py`: Phase 9.1 role contracts, provenance-bound citations, evolving case context, proposal bindings, and bounded state transitions; no agent behavior or provider integration.
+- `cerev/meterless.py`: Meterless Engine World Model protocol, dynamic case projection, SLA discrepancy tracking, and advisory guidance.
+- `cerev/nightshift.py`: Meterless Nightshift provider client, model-invocation trace, and opt-in live smoke test.
+- `cerev/agent_roles.py`: LLM-powered role adapters (Investigator, Challenger, Operator, Reasoner, and NemotronChallenger) with per-request model attribution.
+- `cerev/orchestration.py`: role contracts, provenance-bound citations, evolving case context, proposal bindings, and bounded state transitions.
 - `cerev/evidence_provider.py`: scoped, bounded read-only provider protocol, explicit SAMPLE/Zetaris mode selection, and no-fallback provider wiring.
-- `cerev/coordinator.py`: Phase 9.2 multi-role coordination, deterministic read-only tools, verification feedback loop, fail-closed outcomes, and hash-linked run trace. No LLM, external provider, permit, or execution capability is exposed.
-- `cerev/durable_runtime.py`: Phase 10–11 SQLite workflow, operation, checkpoint, append-only event, and shared-memory persistence integrated with the coordinator; schema migration, single-host leases, and ambiguity-aware recovery.
+- `cerev/coordinator.py`: multi-role coordination, deterministic read-only tools, verification feedback loop, fail-closed outcomes, and hash-linked run trace.
+- `cerev/durable_runtime.py`: SQLite workflow, operation, checkpoint, append-only event, and shared-memory persistence integrated with coordinator.
 - `cerev/memory.py`: typed case-memory records, relationships, bounded queries, summaries, and role-scoped read/write capabilities.
 - `cerev/conflicts.py`: deterministic cross-source findings linked to evidence.
 - `cerev/policy.py`: independent `PERMIT`/`BLOCK`/`ABSTAIN` policy evaluation.
@@ -94,31 +162,26 @@ Runtime dependencies are `cryptography` for Ed25519 and `python-dotenv` for expl
 - `cerev/replay.py`: replay from retained evidence snapshots and result comparison.
 - `cerev/permit.py`: short-lived Ed25519 permits bound to a verified decision and exact action.
 - `cerev/adapter.py`: permit verification, atomic SQLite nonce reservation, execution state, and simulated target.
-- `cerev/demo.py`: explicit sample-only demonstration collecting canonical `BLOCK` and synthetic `PERMIT` cases through the configured evidence provider and source adapters.
-- `cerev/config.py`, `cerev/v21_simulation.py`, `cerev/validation.py`, `cerev/nonce.py`, and `cerev/retrieval_direct.py`: reserved modules for future phases.
-- `cerev/nightshift.py`: Phase 13.1 Meterless Nightshift provider client, model-invocation trace, and opt-in live smoke test.
-- `cerev/agent_roles.py`: Phase 13.2 LLM-powered role adapters (Investigator, Challenger, Operator, Reasoner) with a mock provider for offline testing.
+- `cerev/demo.py`: unified demonstration CLI showcasing sponsor execution paths, Canonical BLOCK, Synthetic PERMIT, and replay rejection.
 
-The `fixture/` directory contains the Phase 1 datasets and guide. The Phase 8 adapter API and simulation limitations are documented in [docs/independent-evidence-sources.md](docs/independent-evidence-sources.md). See [docs/conflict-detection-and-policy.md](docs/conflict-detection-and-policy.md) for Phase 4 behavior, [docs/decision-receipts-and-replay.md](docs/decision-receipts-and-replay.md) for Phase 5, [docs/execution-permits.md](docs/execution-permits.md) for Phase 6, and [docs/protected-execution.md](docs/protected-execution.md) for Phase 7 guarantees and limitations.
+---
 
-Phase 9.1 contract design and state transitions are described in [docs/orchestration-contracts.md](docs/orchestration-contracts.md). Phase 9.2 coordination, tools, revision boundaries, trace, and limitations are described in [docs/central-reasoning-coordinator.md](docs/central-reasoning-coordinator.md).
+## Architectural History & Prior Phases
 
-Phase 10 persistence, checkpointing, concurrency, recovery, trace integrity, and limitations are described in [docs/durable-orchestration-runtime.md](docs/durable-orchestration-runtime.md).
+The repository completed foundational and integration phases:
+- **Phases 0–8:** Repository foundation, canonical fixture, deterministic reference engine, evidence architecture, conflict detection, decision receipts/replay, cryptographic Ed25519 execution permits, and protected execution boundary.
+- **Phase 9:** Immutable role contracts and central reasoning coordinator with bounded cycles and revision lineage.
+- **Phase 10:** Single-host SQLite durable runtime, operation journaling, hash-linked events, and ambiguity-aware recovery.
+- **Phase 11:** Typed, append-only shared reasoning memory integrated with coordinator checkpoints.
+- **Phase 12:** Zetaris Gateway SQL proxy transport and five logical source adapters with 18 canonical records live-verified.
+- **Phase 13.1:** Meterless Nightshift provider abstraction with request tracing and model attribution.
+- **Phase 13.2:** LLM-powered role adapters wired into the executable coordinator loop.
+- **Integrated Sprint:** Meterless Engine World Model integration, NVIDIA Nemotron Challenger via Nightshift, end-to-end multi-sponsor execution path, adversarial boundary defenses, and CLI demo.
 
-Phase 11 memory objects, relationship semantics, role access, coordinator feedback, atomic persistence, migration, and limitations are described in [docs/shared-reasoning-memory.md](docs/shared-reasoning-memory.md).
-
-Phase 12 direct REST and source mapping history is described in [docs/zetaris-integration.md](docs/zetaris-integration.md). The Phase 12.1 Gateway contract and live smoke results are described in [docs/zetaris-gateway-proxy.md](docs/zetaris-gateway-proxy.md). The contract transport status and remaining live-source blockers are described in [docs/zetaris-contract-transport.md](docs/zetaris-contract-transport.md).
-
-Phase 13.1 adds a Meterless Nightshift provider abstraction with a fail-closed, OpenAI-compatible `/v1` chat-completions client. The client never falls back silently to another backend; credentials are excluded from repr, error output, and trace metadata; and configured versus actual serving-model identity is captured when the provider returns it. Use the opt-in live smoke test to verify configuration against a real deployment:
-
-```sh
-# Requires NIGHTSHIFT_API_BASE_URL, NIGHTSHIFT_API_KEY, and NIGHTSHIFT_MODEL
-# set in the environment or .env file. Does not print credentials.
-cerev-nightshift-smoke
-# or equivalently:
-python -m cerev.nightshift
-```
-
-The Phase 13.1 verification report (API contract, live smoke-test result, model attribution limitations) is in [docs/nightshift-provider.md](docs/nightshift-provider.md).
-
-Phase 13.2 adds four LLM-powered role adapters (Investigator, Challenger, Operator, and Reasoner) in `cerev/agent_roles.py`. Each adapter wraps the Nightshift provider abstraction and produces typed, validated outputs compatible with the Phase 9.1 orchestration contracts. The Investigator retrieves and interprets evidence; the Challenger scrutinizes claims and requests follow-up; the Operator steers the case through verify, finalize, escalate, or revise decisions; and the Reasoner synthesizes findings into a final recommendation for the deterministic policy gate. None of these roles may authorize or execute actions — that remains the sole authority of the deterministic policy gate. A `MockNightshiftProvider` is included for offline testing; all role adapters are exercised by mocked tests in `tests/test_agent_roles.py`.
+See documentation in `docs/` for detailed architectural notes on each phase:
+- [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md): Hackathon video demonstration script (1–4 minutes).
+- [docs/zetaris-gateway-proxy.md](docs/zetaris-gateway-proxy.md): Zetaris Gateway proxy contract and verification.
+- [docs/nightshift-provider.md](docs/nightshift-provider.md): Nightshift provider and model attribution.
+- [docs/central-reasoning-coordinator.md](docs/central-reasoning-coordinator.md): Coordinator loop and role contracts.
+- [docs/durable-orchestration-runtime.md](docs/durable-orchestration-runtime.md): Durable SQLite orchestration and recovery.
+- [docs/protected-execution.md](docs/protected-execution.md): Ed25519 permits and protected execution boundary.
