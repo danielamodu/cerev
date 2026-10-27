@@ -57,7 +57,6 @@ def test_nemotron_challenger_custom_model() -> None:
 
 def test_nemotron_routing_and_attribution(tmp_path: Path) -> None:
     provider, proposal, request, package = _setup_case(tmp_path)
-    cite = _citation_dict(package, 0)
 
     chal_content = json.dumps(
         {
@@ -66,7 +65,9 @@ def test_nemotron_routing_and_attribution(tmp_path: Path) -> None:
                     "objection_id": "obj-nemotron-1",
                     "claim_id": "claim-canonical",
                     "kind": "MISSING_EVIDENCE",
-                    "explanation": "Nemotron adversarial scan: 48-hour prior written notice is unproven.",
+                    "explanation": (
+                        "Nemotron adversarial scan: 48-hour prior written notice is unproven."
+                    ),
                     "citations": [],
                 }
             ],
