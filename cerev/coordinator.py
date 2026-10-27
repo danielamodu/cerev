@@ -1072,20 +1072,32 @@ class ReasoningCoordinator:
                     workflow = transition(WorkflowState.FAILED)
                 except Exception:
                     pass
-            root = error
-            while True:
-                cause = getattr(root, "__cause__", None)
-                if not isinstance(cause, BaseException):
+            chain: list[BaseException] = []
+            current: BaseException | None = error
+            while current is not None:
+                chain.append(current)
+                current = getattr(current, "__cause__", None)
+
+            kind = WorkflowFailureKind.WORKFLOW_FAILURE
+            error_code = getattr(error, "code", None) or type(error).__name__.upper()
+
+            for exc in chain:
+                if isinstance(exc, (NightshiftError, TimeoutError)):
+                    kind = WorkflowFailureKind.PROVIDER_FAILURE
+                    error_code = getattr(exc, "code", None) or type(exc).__name__.upper()
                     break
-                root = cause
-            if isinstance(root, (NightshiftError, TimeoutError)):
-                kind = WorkflowFailureKind.PROVIDER_FAILURE
-            elif isinstance(root, ContractValidationError):
-                kind = WorkflowFailureKind.WORKFLOW_FAILURE
-            elif isinstance(root, ValueError):
-                kind = WorkflowFailureKind.VALIDATION_FAILURE
             else:
-                kind = WorkflowFailureKind.WORKFLOW_FAILURE
+                for exc in chain:
+                    if isinstance(exc, ContractValidationError):
+                        kind = WorkflowFailureKind.WORKFLOW_FAILURE
+                        error_code = getattr(exc, "code", None) or type(exc).__name__.upper()
+                        break
+                else:
+                    for exc in chain:
+                        if isinstance(exc, ValueError):
+                            kind = WorkflowFailureKind.VALIDATION_FAILURE
+                            error_code = getattr(exc, "code", None) or type(exc).__name__.upper()
+                            break
             trace = _append_trace(
                 trace,
                 "FAILURE",
@@ -1102,7 +1114,7 @@ class ReasoningCoordinator:
                 {
                     "failure_kind": kind.value,
                     "error_type": type(error).__name__,
-                    "error_code": getattr(error, "code", None) or type(error).__name__.upper(),
+                    "error_code": error_code,
                 },
                 operation_journal,
             )
