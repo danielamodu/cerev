@@ -2,7 +2,7 @@
 
 Uses the Nightshift provider abstraction (Phase 13.1) for model invocation.
 All four roles produce typed, validated outputs compatible with the existing
-orchestration contracts. No role may authorize or execute actions â€” that
+orchestration contracts. No role may authorize or execute actions — that
 remains the sole authority of the deterministic policy gate.
 
 A mock provider is included for offline testing.
@@ -26,9 +26,13 @@ from cerev.coordinator import (
     InvestigatorTurn,
     OperatorDecision,
     OperatorInput,
+    ReasonerDecision,
+    ReasonerInput,
+    ReasonerRecommendation,
     ScopedEvidenceAccess,
 )
 from cerev.evidence import EvidencePackage
+from cerev.evidence_provider import EvidenceLookup
 from cerev.nightshift import (
     NightshiftError,
     NightshiftModelAttribution,
@@ -46,7 +50,10 @@ from cerev.orchestration import (
     InvestigatorClaim,
     InvestigatorHypothesis,
     ObjectionKind,
+    ObjectionResolution,
+    ResolutionOutcome,
 )
+from cerev.policy import ProposedAction
 
 __all__ = [
     "AgentRoleAdapter",
@@ -62,6 +69,7 @@ __all__ = [
     "validate_investigator_output",
     "validate_challenger_output",
     "validate_operator_output",
+    "validate_reasoner_output",
     "MockTemplate",
 ]
 
@@ -196,6 +204,7 @@ class MockNightshiftProvider:
         agent_role: str,
         invocation_id: str,
         messages: Sequence[dict[str, Any]],
+        model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> NightshiftProviderResult:
@@ -230,6 +239,7 @@ class MockNightshiftProvider:
 
         template = matching[index]
         self._call_index[key] = index + 1
+        requested_model = model or self.configured_model
         result = _build_mock_result(
             template=template,
             invocation_id=invocation_id,
@@ -237,6 +247,7 @@ class MockNightshiftProvider:
             case_id=case_id,
             agent_role=agent_role,
             messages=messages,
+            requested_model=requested_model,
         )
         self.invocations.append(
             _trace_from_provider_result(
@@ -276,6 +287,7 @@ def _build_mock_result(
     case_id: str,
     agent_role: str,
     messages: Sequence[dict[str, Any]],
+    requested_model: str = "claude-sonnet-4-6-mock",
 ) -> NightshiftProviderResult:
     from cerev.nightshift import (
         ModelInvocationTrace,
@@ -300,10 +312,11 @@ def _build_mock_result(
         if template.token_usage
         else None
     )
+    serving_model = template.serving_model or requested_model
     response = NightshiftResponse(
         response_id=invocation_id,
         created=int(now.timestamp()),
-        model=template.serving_model,
+        model=serving_model,
         choices=(
             NightshiftCompletion(
                 message_role="assistant",
@@ -316,9 +329,9 @@ def _build_mock_result(
         http_status=200,
     )
     attribution = NightshiftModelAttribution(
-        configured_model="claude-sonnet-4-6-mock",
-        serving_model=template.serving_model,
-        raw_model_id=template.serving_model,
+        configured_model=requested_model,
+        serving_model=serving_model,
+        raw_model_id=serving_model,
     )
     trace = ModelInvocationTrace(
         workflow_id=workflow_id,
@@ -326,8 +339,8 @@ def _build_mock_result(
         agent_role=agent_role,
         invocation_id=invocation_id,
         provider="mock-nightshift",
-        requested_model="claude-sonnet-4-6-mock",
-        actual_serving_model=template.serving_model,
+        requested_model=requested_model,
+        actual_serving_model=serving_model,
         request_timestamp=now,
         completion_timestamp=now,
         outcome="success",
@@ -540,6 +553,7 @@ def validate_challenger_output(
                 workflow_id=workflow_id,
                 proposal_id=proposal_id,
                 package=package,
+                allow_empty=True,
             ),
             authored_by=AgentRole.CHALLENGER,
         )
@@ -578,15 +592,114 @@ def validate_operator_output(
     if not isinstance(data, dict):
         raise ValueError("Operator output must be a JSON object.")
 
+    # Revisions
+    revision = None
+    raw_rev = data.get("revision")
+    if isinstance(raw_rev, dict):
+        revision = ProposedAction(
+            action_id=_require_field(raw_rev, "action_id", str),
+            action_type=_require_field(raw_rev, "action_type", str),
+            amount_cents=_require_field(raw_rev, "amount_cents", int),
+            currency=_require_field(raw_rev, "currency", str),
+        )
+
+    # Requests
+    raw_req = data.get("requests", [])
+    requests = []
+    if isinstance(raw_req, list):
+        for req_data in raw_req:
+            if isinstance(req_data, dict):
+                requests.append(
+                    EvidenceRequest(
+                        request_id=_require_field(req_data, "request_id", str),
+                        workflow_id=workflow_id,
+                        proposal_id=proposal_id,
+                        target=_parse_enum(req_data, "target", InvestigationTarget),
+                        target_id=req_data.get("target_id"),
+                        question=_require_field(req_data, "question", str),
+                        rationale=_require_field(req_data, "rationale", str),
+                        requested_by=AgentRole.OPERATOR,
+                    )
+                )
+
+    # Resolutions
+    raw_res = data.get("resolutions", [])
+    resolutions = []
+    if isinstance(raw_res, list):
+        for res_data in raw_res:
+            if isinstance(res_data, dict):
+                citations = _parse_citations(
+                    res_data.get("citations", []),
+                    workflow_id=workflow_id,
+                    proposal_id=proposal_id,
+                    allow_empty=True,
+                )
+                resolutions.append(
+                    ObjectionResolution(
+                        objection_id=_require_field(res_data, "objection_id", str),
+                        workflow_id=workflow_id,
+                        outcome=_parse_enum(res_data, "outcome", ResolutionOutcome),
+                        rationale=_require_field(res_data, "rationale", str),
+                        citations=citations,
+                        resolved_by=AgentRole.OPERATOR,
+                    )
+                )
+
     return OperatorDecision(
-        requests=tuple(),
-        resolutions=tuple(),
+        requests=tuple(requests),
+        resolutions=tuple(resolutions),
         tools=tuple(),
         verify=bool(data.get("verify", False)),
         finalize=bool(data.get("finalize", False)),
         escalate_reason=data.get("escalate_reason"),
-        revision=data.get("revision"),
+        revision=revision,
         revision_reason=data.get("revision_reason"),
+    )
+
+
+def validate_reasoner_output(
+    data: dict[str, Any],
+    *,
+    workflow_id: str,
+    proposal_id: str,
+) -> ReasonerDecision:
+    """Parse and validate a JSON response into a ReasonerDecision."""
+    if not isinstance(data, dict):
+        raise ValueError("Reasoner output must be a JSON object.")
+
+    rec_str = _require_field(data, "recommendation", str).upper()
+    try:
+        rec = ReasonerRecommendation(rec_str)
+    except ValueError:
+        if "REVISE" in rec_str:
+            rec = ReasonerRecommendation.REVISE
+        elif "ESCALATE" in rec_str:
+            rec = ReasonerRecommendation.ESCALATE
+        elif "TERMINATE" in rec_str or "FAIL" in rec_str:
+            rec = ReasonerRecommendation.TERMINATE
+        elif "INVESTIGATE" in rec_str:
+            rec = ReasonerRecommendation.INVESTIGATE
+        else:
+            rec = ReasonerRecommendation.FINALIZE
+
+    revision = None
+    raw_rev = data.get("revision")
+    if isinstance(raw_rev, dict):
+        revision = ProposedAction(
+            action_id=_require_field(raw_rev, "action_id", str),
+            action_type=_require_field(raw_rev, "action_type", str),
+            amount_cents=_require_field(raw_rev, "amount_cents", int),
+            currency=_require_field(raw_rev, "currency", str),
+        )
+
+    return ReasonerDecision(
+        recommendation=rec,
+        rationale=data.get("rationale", ""),
+        revision=revision,
+        revision_reason=data.get("revision_reason"),
+        escalate_reason=data.get("escalate_reason"),
+        terminate_reason=data.get("terminate_reason"),
+        key_findings=_parse_str_tuple(data, "key_findings") if "key_findings" in data else (),
     )
 
 
@@ -758,11 +871,33 @@ class LLMInvestigator:
                 "Investigator output was not valid JSON: " + str(error),
                 request_id=invocation_id,
             ) from error
+        pkg = getattr(evidence, "_package", None)
+        if hasattr(evidence, "retrieve") and value.requests:
+            for req in value.requests:
+                try:
+                    lookup = EvidenceLookup(
+                        value.proposal.workflow_id,
+                        value.proposal.proposal_id,
+                        req.request_id,
+                        (
+                            "source-contract-repository",
+                            "source-operational-cms",
+                            "source-maintenance-incident-registry",
+                            "source-release-registry",
+                            "source-billing-calculation-and-action",
+                        ),
+                        (),
+                    )
+                    res = evidence.retrieve(lookup)
+                    if pkg is None:
+                        pkg = getattr(res, "package", None)
+                except Exception:
+                    pass
         return validate_investigator_output(
             parsed,
             workflow_id=value.case.workflow_id,
             proposal_id=value.proposal.proposal_id,
-            package=evidence._package,
+            package=pkg,
         )
 
 
@@ -829,6 +964,89 @@ class LLMChallenger:
             package=None,
         )
 
+
+class NemotronChallenger(LLMChallenger):
+    """Specialized adversarial Challenger role adapter backed by NVIDIA Nemotron via Nightshift.
+
+    Nemotron is purpose-built for deep reasoning, identifying hidden contradictions,
+    probing boundary conditions, and rigorously interrogating evidence claims.
+    """
+
+    DEFAULT_NEMOTRON_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct"
+
+    def __init__(
+        self,
+        provider: NightshiftProvider,
+        *,
+        model: str = DEFAULT_NEMOTRON_MODEL,
+    ) -> None:
+        super().__init__(provider)
+        self._model = model
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    def challenge(self, value: ChallengerInput) -> ChallengerTurn:
+        sys_msg = build_system_prompt(
+            self._role,
+            workflow_id=value.proposal.workflow_id,
+            case_id=value.proposal.workflow_id,
+            proposal_id=value.proposal.proposal_id,
+        )
+        nemotron_directive = (
+            "NEMOTRON ADVERSARIAL CHALLENGE DIRECTIVE:\n"
+            "Interrogate all claims with extreme rigor. Look for:\n"
+            "1. Unverified downtime assertions or discrepancy with maintenance windows.\n"
+            "2. Uncorroborated contract tier or SLA calculation percentages.\n"
+            "3. Any gaps in the provenance or timeline of the evidence."
+        )
+        claim_lines = []
+        for claim in value.claims:
+            kind = claim.kind.value if hasattr(claim.kind, "value") else claim.kind
+            claim_lines.append("  - [" + kind + "] " + claim.statement)
+        claim_block = "\n".join(claim_lines) if claim_lines else "none"
+        user_content = (
+            nemotron_directive
+            + "\n\nClaims to scrutinize:\n"
+            + claim_block
+            + "\n"
+            + "Prior objections: "
+            + str(len(value.objections_seen))
+        )
+        messages: list[dict[str, Any]] = [sys_msg, {"role": "user", "content": user_content}]
+        invocation_id = str(uuid.uuid4())
+        result = self._provider.invoke(
+            workflow_id=value.proposal.workflow_id,
+            case_id=value.proposal.workflow_id,
+            agent_role=self._role.value,
+            invocation_id=invocation_id,
+            messages=messages,
+            model=self._model,
+            temperature=0.3,
+            max_tokens=4000,
+        )
+        content = result.content
+        if content is None:
+            raise NightshiftError(
+                "no_completion",
+                "NemotronChallenger received empty completion from provider.",
+                request_id=invocation_id,
+            )
+        try:
+            parsed = extract_json(content)
+        except ValueError as error:
+            raise NightshiftError(
+                "invalid_json",
+                "NemotronChallenger output was not valid JSON: " + str(error),
+                request_id=invocation_id,
+            ) from error
+        return validate_challenger_output(
+            parsed,
+            workflow_id=value.proposal.workflow_id,
+            proposal_id=value.proposal.proposal_id,
+            package=None,
+        )
 
 
 class LLMOperator:
@@ -911,23 +1129,46 @@ class LLMReasoner:
 
     def reason(
         self,
+        value: ReasonerInput | None = None,
         *,
-        workflow_id: str,
-        case_id: str,
-        proposal_id: str,
-        summary: str,
-    ) -> str:
+        workflow_id: str | None = None,
+        case_id: str | None = None,
+        proposal_id: str | None = None,
+        summary: str | None = None,
+    ) -> Any:
+        if value is not None and hasattr(value, "workflow_id"):
+            w_id = value.workflow_id
+            c_id = value.case_id if hasattr(value, "case_id") else value.workflow_id
+            p_id = (
+                value.proposal_id if hasattr(value, "proposal_id") else value.proposal.proposal_id
+            )
+            disp = (
+                value.evaluation.receipt.disposition
+                if hasattr(value, "evaluation") and value.evaluation
+                else "NONE"
+            )
+            count = len(value.feedback.findings) if value.feedback else 0
+            findings_summary = f"Findings count: {count}\nEvaluation: {disp}"
+            summ = summary or findings_summary
+            is_coordinator_call = True
+        else:
+            w_id = workflow_id or "default-workflow"
+            c_id = case_id or "default-case"
+            p_id = proposal_id or "default-proposal"
+            summ = summary or ""
+            is_coordinator_call = False
+
         sys_msg = build_system_prompt(
             self._role,
-            workflow_id=workflow_id,
-            case_id=case_id,
-            proposal_id=proposal_id,
+            workflow_id=w_id,
+            case_id=c_id,
+            proposal_id=p_id,
         )
-        messages: list[dict[str, Any]] = [sys_msg, {"role": "user", "content": summary}]
+        messages: list[dict[str, Any]] = [sys_msg, {"role": "user", "content": summ}]
         invocation_id = str(uuid.uuid4())
         result = self._provider.invoke(
-            workflow_id=workflow_id,
-            case_id=case_id,
+            workflow_id=w_id,
+            case_id=c_id,
             agent_role=self._role.value,
             invocation_id=invocation_id,
             messages=messages,
@@ -955,4 +1196,6 @@ class LLMReasoner:
                 "Reasoner output missing required recommendation field.",
                 request_id=invocation_id,
             )
+        if is_coordinator_call:
+            return validate_reasoner_output(parsed, workflow_id=w_id, proposal_id=p_id)
         return parsed["recommendation"]
