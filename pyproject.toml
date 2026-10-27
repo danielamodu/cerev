@@ -11,6 +11,7 @@ requires-python = ">=3.12"
 dependencies = ["cryptography>=44.0", "python-dotenv>=1.0"]
 
 [project.scripts]
+cerev-demo = "cerev.demo:main"
 cerev-protected-demo = "cerev.demo:main"
 cerev-nightshift-smoke = "cerev.nightshift:smoke_test_main"
 
