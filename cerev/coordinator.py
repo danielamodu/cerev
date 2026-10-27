@@ -468,6 +468,8 @@ class ReasoningCoordinator:
         investigator: Investigator,
         challenger: Challenger,
         evidence_provider: EvidenceProvider,
+        reasoner: Reasoner | None = None,
+        world_model: Any | None = None,
         revision_publisher: ProposalRevisionPublisher | None = None,
         max_tool_calls_per_turn: int = MAX_TOOL_CALLS_PER_TURN,
     ) -> None:
@@ -477,6 +479,8 @@ class ReasoningCoordinator:
         self.investigator = investigator
         self.challenger = challenger
         self.evidence_provider = evidence_provider
+        self.reasoner = reasoner
+        self.world_model = world_model
         self.revision_publisher = revision_publisher
         self.max_tool_calls_per_turn = max_tool_calls_per_turn
 
