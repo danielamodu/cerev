@@ -20,11 +20,13 @@ from cerev.conflicts import analyze_evidence
 from cerev.evidence import EvidencePackage, EvidenceRecord
 from cerev.evidence_provider import EvidenceLookup, EvidenceProvider, EvidenceProviderResult
 from cerev.memory import CaseMemoryAccess, MemorySummary
+from cerev.nightshift import NightshiftError
 from cerev.orchestration import (
     ActionProposal,
     AgentRole,
     CaseContext,
     ChallengerObjection,
+    ContractValidationError,
     EvidenceRequest,
     InvestigationResponse,
     InvestigationTarget,
@@ -975,11 +977,20 @@ class ReasoningCoordinator:
                     workflow = transition(WorkflowState.FAILED)
                 except Exception:
                     pass
-            kind = (
-                WorkflowFailureKind.PROVIDER_FAILURE
-                if isinstance(error, (TimeoutError,)) or "provider" in str(error).lower()
-                else WorkflowFailureKind.VALIDATION_FAILURE
-            )
+            root = error
+            while True:
+                cause = getattr(root, "__cause__", None)
+                if not isinstance(cause, BaseException):
+                    break
+                root = cause
+            if isinstance(root, (NightshiftError, TimeoutError)):
+                kind = WorkflowFailureKind.PROVIDER_FAILURE
+            elif isinstance(root, ContractValidationError):
+                kind = WorkflowFailureKind.WORKFLOW_FAILURE
+            elif isinstance(root, ValueError):
+                kind = WorkflowFailureKind.VALIDATION_FAILURE
+            else:
+                kind = WorkflowFailureKind.WORKFLOW_FAILURE
             trace = _append_trace(
                 trace,
                 "FAILURE",
@@ -996,7 +1007,7 @@ class ReasoningCoordinator:
                 {
                     "failure_kind": kind.value,
                     "error_type": type(error).__name__,
-                    "error_code": type(error).__name__.upper(),
+                    "error_code": getattr(error, "code", None) or type(error).__name__.upper(),
                 },
                 operation_journal,
             )

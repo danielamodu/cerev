@@ -23,11 +23,13 @@ from cerev.evidence_provider import (
     EvidenceLookup,
     LocalSQLiteEvidenceProvider,
 )
+from cerev.nightshift import NightshiftError
 from cerev.orchestration import (
     ActionProposal,
     AgentRole,
     ChallengerObjection,
     ClaimKind,
+    ContractValidationError,
     EvidenceCitation,
     EvidenceRequest,
     InvestigationResponse,
@@ -36,6 +38,7 @@ from cerev.orchestration import (
     ObjectionKind,
     ObjectionResolution,
     ResolutionOutcome,
+    WorkflowFailureKind,
     WorkflowIdentity,
     WorkflowStatus,
 )
@@ -304,5 +307,82 @@ def test_provider_timeout_fails_closed_without_a_receipt(tmp_path: Path) -> None
         evidence_provider=TimedOutProvider(),
     ).run(WorkflowIdentity(proposal.workflow_id, NOW), proposal, (request,))
     assert run.result.status == WorkflowStatus.FAILED
+    assert run.result.failure_kind == WorkflowFailureKind.PROVIDER_FAILURE
+    assert run.result.evaluation is None
+    assert run.trace.verify()
+
+
+def test_nightshift_error_is_provider_failure(tmp_path: Path) -> None:
+    _, proposal, request = _case(tmp_path)
+
+    class FailingProvider:
+        def retrieve(self, lookup: EvidenceLookup):
+            raise NightshiftError("invalid_json", "Provider returned malformed JSON.")
+
+    run = ReasoningCoordinator(
+        operator=_Operator(),
+        investigator=_Investigator(),
+        challenger=_Challenger(),
+        evidence_provider=FailingProvider(),
+    ).run(WorkflowIdentity(proposal.workflow_id, NOW), proposal, (request,))
+    assert run.result.status == WorkflowStatus.FAILED
+    assert run.result.failure_kind == WorkflowFailureKind.PROVIDER_FAILURE
+    assert run.result.evaluation is None
+    assert run.trace.verify()
+
+
+def test_value_error_is_validation_failure(tmp_path: Path) -> None:
+    _, proposal, request = _case(tmp_path)
+
+    class ValueErrorProvider:
+        def retrieve(self, lookup: EvidenceLookup):
+            raise ValueError("Unexpected evidence shape.")
+
+    run = ReasoningCoordinator(
+        operator=_Operator(),
+        investigator=_Investigator(),
+        challenger=_Challenger(),
+        evidence_provider=ValueErrorProvider(),
+    ).run(WorkflowIdentity(proposal.workflow_id, NOW), proposal, (request,))
+    assert run.result.status == WorkflowStatus.FAILED
+    assert run.result.failure_kind == WorkflowFailureKind.VALIDATION_FAILURE
+    assert run.result.evaluation is None
+    assert run.trace.verify()
+
+
+def test_contract_validation_error_is_workflow_failure(tmp_path: Path) -> None:
+    _, proposal, request = _case(tmp_path)
+
+    class ContractErrorProvider:
+        def retrieve(self, lookup: EvidenceLookup):
+            raise ContractValidationError("State invariant violated.")
+
+    run = ReasoningCoordinator(
+        operator=_Operator(),
+        investigator=_Investigator(),
+        challenger=_Challenger(),
+        evidence_provider=ContractErrorProvider(),
+    ).run(WorkflowIdentity(proposal.workflow_id, NOW), proposal, (request,))
+    assert run.result.status == WorkflowStatus.FAILED
+    assert run.result.failure_kind == WorkflowFailureKind.WORKFLOW_FAILURE
+    assert run.result.evaluation is None
+    assert run.trace.verify()
+
+
+def test_runtime_error_is_workflow_failure(tmp_path: Path) -> None:
+    _, proposal, request = _case(tmp_path)
+
+    class RuntimeErrorProvider:
+        def retrieve(self, lookup: EvidenceLookup):
+            raise RuntimeError("Unexpected runtime condition.")
+
+    run = ReasoningCoordinator(
+        operator=_Operator(),
+        investigator=_Investigator(),
+        challenger=_Challenger(),
+        evidence_provider=RuntimeErrorProvider(),
+    ).run(WorkflowIdentity(proposal.workflow_id, NOW), proposal, (request,))
+    assert run.result.status == WorkflowStatus.FAILED
+    assert run.result.failure_kind == WorkflowFailureKind.WORKFLOW_FAILURE
     assert run.result.evaluation is None
     assert run.trace.verify()
