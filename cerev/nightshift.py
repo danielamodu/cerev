@@ -213,6 +213,7 @@ class NightshiftClient:
         self,
         messages: tuple[dict[str, Any], ...],
         *,
+        model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
         request_id: str | None = None,
@@ -223,8 +224,9 @@ class NightshiftClient:
         if not isinstance(messages, tuple):
             messages = tuple(messages)
         own_request_id = request_id or str(uuid.uuid4())
+        target_model = model or self.config.model
         body: dict[str, Any] = {
-            "model": self.config.model,
+            "model": target_model,
             "messages": [dict(msg) for msg in messages],
         }
         if temperature is not None:
@@ -589,6 +591,7 @@ class NightshiftProvider:
         agent_role: str,
         invocation_id: str,
         messages: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+        model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> NightshiftProviderResult:
@@ -597,14 +600,16 @@ class NightshiftProvider:
             messages = tuple(messages)
         if not messages:
             raise ValueError("messages must not be empty.")
+        target_model = model or self._config.model
         request_timestamp = datetime.now(UTC)
         response = self._client.chat_completion(
             messages,
+            model=target_model,
             temperature=temperature,
             max_tokens=max_tokens,
             request_id=invocation_id,
         )
-        attribution = response.attribution(self._config.model)
+        attribution = response.attribution(target_model)
         completion_timestamp = datetime.now(UTC)
         trace = ModelInvocationTrace(
             workflow_id=workflow_id,
@@ -612,7 +617,7 @@ class NightshiftProvider:
             agent_role=agent_role,
             invocation_id=invocation_id,
             provider=self.PROVIDER_ID,
-            requested_model=self._config.model,
+            requested_model=target_model,
             actual_serving_model=attribution.serving_model,
             request_timestamp=request_timestamp,
             completion_timestamp=completion_timestamp,
