@@ -180,6 +180,59 @@ class Reasoner(Protocol):
     def reason(self, value: ReasonerInput) -> ReasonerDecision: ...
 
 
+def _coerce_reasoner_decision(raw: Any, workflow_id: str, proposal_id: str) -> ReasonerDecision:
+    if isinstance(raw, ReasonerDecision):
+        return raw
+    if isinstance(raw, str):
+        upper = raw.strip().upper()
+        if "REVISE" in upper:
+            rec = ReasonerRecommendation.REVISE
+        elif "ESCALATE" in upper:
+            rec = ReasonerRecommendation.ESCALATE
+        elif "TERMINATE" in upper or "FAIL" in upper:
+            rec = ReasonerRecommendation.TERMINATE
+        elif "INVESTIGATE" in upper:
+            rec = ReasonerRecommendation.INVESTIGATE
+        else:
+            rec = ReasonerRecommendation.FINALIZE
+        return ReasonerDecision(recommendation=rec, rationale=raw)
+    if isinstance(raw, dict):
+        rec_raw = str(raw.get("recommendation", "FINALIZE")).upper()
+        try:
+            rec = ReasonerRecommendation(rec_raw)
+        except ValueError:
+            if "REVISE" in rec_raw:
+                rec = ReasonerRecommendation.REVISE
+            elif "ESCALATE" in rec_raw:
+                rec = ReasonerRecommendation.ESCALATE
+            elif "TERMINATE" in rec_raw or "FAIL" in rec_raw:
+                rec = ReasonerRecommendation.TERMINATE
+            elif "INVESTIGATE" in rec_raw:
+                rec = ReasonerRecommendation.INVESTIGATE
+            else:
+                rec = ReasonerRecommendation.FINALIZE
+        revision = raw.get("revision")
+        if isinstance(revision, dict):
+            revision = ProposedAction(
+                action_id=revision["action_id"],
+                action_type=revision["action_type"],
+                amount_cents=int(revision["amount_cents"]),
+                currency=revision["currency"],
+            )
+        return ReasonerDecision(
+            recommendation=rec,
+            rationale=raw.get("rationale", ""),
+            requests=tuple(raw.get("requests", ())),
+            revision=revision,
+            revision_reason=raw.get("revision_reason"),
+            escalate_reason=raw.get("escalate_reason"),
+            terminate_reason=raw.get("terminate_reason"),
+            key_findings=tuple(raw.get("key_findings", ())),
+        )
+    raise CoordinatorError("Reasoner returned an invalid response contract.")
+
+
+
 
 class ProposalRevisionPublisher(Protocol):
     """Optional source-owned write boundary for publishing a revised proposed action."""
