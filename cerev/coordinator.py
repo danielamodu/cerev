@@ -142,6 +142,7 @@ class Investigator(Protocol):
 class Challenger(Protocol):
     def challenge(self, value: ChallengerInput) -> ChallengerTurn: ...
 
+
 class ReasonerRecommendation(StrEnum):
     FINALIZE = "FINALIZE"
     INVESTIGATE = "INVESTIGATE"
@@ -230,8 +231,6 @@ def _coerce_reasoner_decision(raw: Any, workflow_id: str, proposal_id: str) -> R
             key_findings=tuple(raw.get("key_findings", ())),
         )
     raise CoordinatorError("Reasoner returned an invalid response contract.")
-
-
 
 
 class ProposalRevisionPublisher(Protocol):
@@ -850,6 +849,16 @@ class ReasoningCoordinator:
                         decision.escalate_reason,
                     )
                 if decision.revision is not None:
+                    if workflow.revision_count >= workflow.max_revisions:
+                        workflow = transition(WorkflowState.ESCALATED)
+                        return _outcome(
+                            identity.workflow_id,
+                            WorkflowStatus.ESCALATED,
+                            workflow,
+                            case,
+                            trace,
+                            "Maximum proposal revision count has been reached.",
+                        )
                     if self.revision_publisher is None:
                         workflow = transition(WorkflowState.ESCALATED)
                         return _outcome(
@@ -917,6 +926,16 @@ class ReasoningCoordinator:
                         )
                     continue
                 if decision.requests or challenge.evidence_requests:
+                    if workflow.investigation_cycles >= workflow.max_investigation_cycles:
+                        workflow = transition(WorkflowState.ESCALATED)
+                        return _outcome(
+                            identity.workflow_id,
+                            WorkflowStatus.ESCALATED,
+                            workflow,
+                            case,
+                            trace,
+                            "Maximum investigation cycle count has been reached.",
+                        )
                     pending = decision.requests + challenge.evidence_requests
                     workflow = transition(WorkflowState.INVESTIGATING, evidence_request=pending[0])
                     feedback = None
@@ -947,71 +966,307 @@ class ReasoningCoordinator:
                         operation_journal,
                     )
                     case = case.evolve(verification_feedback=(feedback,))
-                    verification_operation = (
-                        f"cycle-{workflow.investigation_cycles}/operator-verification"
-                    )
-                    verification_summary = (
-                        None if operator_memory is None else operator_memory.summary()
-                    )
-                    if operation_journal is not None:
-                        verification_summary = operation_journal.memory_summary_for_operation(
-                            verification_operation, verification_summary
+                    if self.reasoner is not None:
+                        reasoner_operation = f"cycle-{workflow.investigation_cycles}/reasoner"
+                        reasoner_memory = (
+                            None
+                            if operation_journal is None
+                            else operation_journal.memory_for(AgentRole.REASONER)
                         )
-                    verifier_input = OperatorInput(
-                        "VERIFICATION_FEEDBACK",
-                        proposal,
-                        case,
-                        last_package,
-                        feedback,
-                        memory_summary=verification_summary,
-                        memory_access=operator_memory,
-                    )
-                    verifier_choice = _invoke_operation(
-                        operation_journal,
-                        verification_operation,
-                        "operator_verification",
-                        verifier_input,
-                        lambda: self.operator.decide(verifier_input),
-                        workflow.state.value,
-                    )
-                    if not isinstance(verifier_choice, OperatorDecision):
-                        raise CoordinatorError(
-                            "Operator returned an invalid verification response."
+                        reasoner_summary = (
+                            None if reasoner_memory is None else reasoner_memory.summary()
                         )
-                    if (
-                        verifier_choice.requests
-                        and workflow.investigation_cycles < workflow.max_investigation_cycles
-                    ):
-                        pending = verifier_choice.requests
-                        case = case.evolve(evidence_requests=pending)
-                        workflow = transition(
-                            WorkflowState.INVESTIGATING,
-                            evidence_request=pending[0],
-                            verification_feedback=feedback,
+                        if operation_journal is not None:
+                            reasoner_summary = operation_journal.memory_summary_for_operation(
+                                reasoner_operation, reasoner_summary
+                            )
+                        projection = None
+                        if self.world_model is not None:
+                            projection = self.world_model.update(case, last_package, feedback)
+                            trace = _append_trace(
+                                trace,
+                                "METERLESS_WORLD_MODEL",
+                                "METERLESS",
+                                (proposal.proposal_id,),
+                                {
+                                    "workflow_id": projection.workflow_id,
+                                    "proposal_id": projection.proposal_id,
+                                    "revision_depth": projection.revision_depth,
+                                    "active_claims_count": len(projection.active_claims),
+                                    "contradictions_count": len(projection.contradictions),
+                                    "evidence_gaps_count": len(projection.evidence_gaps),
+                                    "discrepancy_cents": projection.discrepancy_cents,
+                                    "advisory_guidance": projection.advisory_guidance,
+                                    "confidence_score": f"{projection.confidence_score:.2f}",
+                                    "source_attribution": projection.source_attribution,
+                                },
+                                operation_journal,
+                            )
+                        reasoner_input = ReasonerInput(
+                            workflow_id=identity.workflow_id,
+                            case_id=identity.workflow_id,
+                            proposal_id=proposal.proposal_id,
+                            proposal=proposal,
+                            case=case,
+                            package=last_package,
+                            feedback=feedback,
+                            memory_summary=reasoner_summary,
+                            memory_access=reasoner_memory,
+                            world_model_projection=projection,
                         )
-                        continue
-                    if verifier_choice.requests:
-                        workflow = transition(WorkflowState.ESCALATED)
-                        return _outcome(
+                        raw_reasoner_choice = _invoke_operation(
+                            operation_journal,
+                            reasoner_operation,
+                            "reasoner",
+                            reasoner_input,
+                            lambda: self.reasoner.reason(reasoner_input),
+                            workflow.state.value,
+                        )
+                        reasoner_choice = _coerce_reasoner_decision(
+                            raw_reasoner_choice,
                             identity.workflow_id,
-                            WorkflowStatus.ESCALATED,
-                            workflow,
-                            case,
-                            trace,
-                            "Deterministic findings remain unresolved at the investigation bound.",
+                            proposal.proposal_id,
                         )
-                    # The deterministic policy gate determines the disposition even when
-                    # verifier feedback remains; the Operator cannot override its result.
-                    if not verifier_choice.finalize:
-                        workflow = transition(WorkflowState.ESCALATED)
-                        return _outcome(
-                            identity.workflow_id,
-                            WorkflowStatus.ESCALATED,
-                            workflow,
-                            case,
+                        trace = _append_trace(
                             trace,
-                            "Operator did not finalize after verification.",
+                            "REASONER",
+                            AgentRole.REASONER.value,
+                            (proposal.proposal_id,),
+                            {
+                                "recommendation": reasoner_choice.recommendation.value,
+                                "rationale": reasoner_choice.rationale,
+                                "key_findings": reasoner_choice.key_findings,
+                            },
+                            operation_journal,
                         )
+                        if reasoner_choice.recommendation == ReasonerRecommendation.ESCALATE:
+                            workflow = transition(WorkflowState.ESCALATED)
+                            return _outcome(
+                                identity.workflow_id,
+                                WorkflowStatus.ESCALATED,
+                                workflow,
+                                case,
+                                trace,
+                                reasoner_choice.escalate_reason
+                                or "Reasoner recommended escalation.",
+                            )
+                        if reasoner_choice.recommendation == ReasonerRecommendation.TERMINATE:
+                            workflow = transition(WorkflowState.FAILED)
+                            return _outcome(
+                                identity.workflow_id,
+                                WorkflowStatus.FAILED,
+                                workflow,
+                                case,
+                                trace,
+                                reasoner_choice.terminate_reason
+                                or "Reasoner recommended termination.",
+                            )
+                        if reasoner_choice.recommendation == ReasonerRecommendation.REVISE:
+                            if workflow.revision_count >= workflow.max_revisions:
+                                workflow = transition(WorkflowState.ESCALATED)
+                                return _outcome(
+                                    identity.workflow_id,
+                                    WorkflowStatus.ESCALATED,
+                                    workflow,
+                                    case,
+                                    trace,
+                                    "Maximum proposal revision count has been reached.",
+                                )
+                            if self.revision_publisher is None:
+                                workflow = transition(WorkflowState.ESCALATED)
+                                return _outcome(
+                                    identity.workflow_id,
+                                    WorkflowStatus.ESCALATED,
+                                    workflow,
+                                    case,
+                                    trace,
+                                    "No source-owned proposal revision publisher is configured.",
+                                )
+                            revision_action = reasoner_choice.revision
+                            if revision_action is None:
+                                raise CoordinatorError(
+                                    "Reasoner recommended revision without a revised action."
+                                )
+                            rev_reason = reasoner_choice.revision_reason or "Reasoner revision"
+                            next_proposal = _invoke_operation(
+                                operation_journal,
+                                f"cycle-{workflow.investigation_cycles}/proposal-revision",
+                                "proposal_revision",
+                                {
+                                    "proposal": proposal,
+                                    "action": revision_action,
+                                    "reason": rev_reason,
+                                },
+                                lambda: proposal.revise(
+                                    proposal_id=(
+                                        f"{proposal.proposal_id}-r{proposal.revision_number + 1}"
+                                    ),
+                                    action=revision_action,
+                                    reason=rev_reason,
+                                    submitted_by=AgentRole.OPERATOR,
+                                    created_at=datetime.now(UTC),
+                                ),
+                                workflow.state.value,
+                            )
+                            revision_input = {
+                                "workflow_id": identity.workflow_id,
+                                "proposal_id": next_proposal.proposal_id,
+                                "action": next_proposal.action,
+                            }
+                            _invoke_operation(
+                                operation_journal,
+                                f"cycle-{workflow.investigation_cycles}/publish-revision",
+                                "proposal_revision_publish",
+                                revision_input,
+                                lambda: self.revision_publisher.publish(
+                                    identity.workflow_id,
+                                    next_proposal.proposal_id,
+                                    next_proposal.action,
+                                ),
+                                workflow.state.value,
+                            )
+                            proposal = next_proposal
+                            if operator_memory is not None:
+                                operator_memory.record_proposal(proposal)
+                            case = case.evolve(
+                                current_proposal_id=proposal.proposal_id,
+                                proposals=(proposal,),
+                            )
+                            workflow = transition(
+                                WorkflowState.INVESTIGATING,
+                                revision=proposal,
+                                verification_feedback=feedback,
+                            )
+                            pending = reasoner_choice.requests
+                            if not pending:
+                                pending = (
+                                    EvidenceRequest(
+                                        f"revision-{proposal.proposal_id}",
+                                        identity.workflow_id,
+                                        proposal.proposal_id,
+                                        InvestigationTarget.PROPOSAL,
+                                        None,
+                                        (
+                                            "Retrieve and verify the source-owned "
+                                            "revised proposed action."
+                                        ),
+                                        (
+                                            "A proposal revision requires fresh "
+                                            "source-backed evidence."
+                                        ),
+                                        AgentRole.OPERATOR,
+                                    ),
+                                )
+                            continue
+                        if reasoner_choice.recommendation == ReasonerRecommendation.INVESTIGATE:
+                            if workflow.investigation_cycles < workflow.max_investigation_cycles:
+                                pending = reasoner_choice.requests
+                                if not pending:
+                                    pending = (
+                                        EvidenceRequest(
+                                            (
+                                                f"investigate-{proposal.proposal_id}"
+                                                f"-c{workflow.investigation_cycles + 1}"
+                                            ),
+                                            identity.workflow_id,
+                                            proposal.proposal_id,
+                                            InvestigationTarget.PROPOSAL,
+                                            None,
+                                            "Investigate unresolved verification findings.",
+                                            (
+                                                "Deterministic verification identified "
+                                                "findings requiring follow-up."
+                                            ),
+                                            AgentRole.OPERATOR,
+                                        ),
+                                    )
+                                case = case.evolve(evidence_requests=pending)
+                                workflow = transition(
+                                    WorkflowState.INVESTIGATING,
+                                    evidence_request=pending[0],
+                                    verification_feedback=feedback,
+                                )
+                                continue
+                            else:
+                                workflow = transition(WorkflowState.ESCALATED)
+                                return _outcome(
+                                    identity.workflow_id,
+                                    WorkflowStatus.ESCALATED,
+                                    workflow,
+                                    case,
+                                    trace,
+                                    (
+                                        "Deterministic findings remain unresolved "
+                                        "at the investigation bound."
+                                    ),
+                                )
+                    else:
+                        verification_operation = (
+                            f"cycle-{workflow.investigation_cycles}/operator-verification"
+                        )
+                        verification_summary = (
+                            None if operator_memory is None else operator_memory.summary()
+                        )
+                        if operation_journal is not None:
+                            verification_summary = operation_journal.memory_summary_for_operation(
+                                verification_operation, verification_summary
+                            )
+                        verifier_input = OperatorInput(
+                            "VERIFICATION_FEEDBACK",
+                            proposal,
+                            case,
+                            last_package,
+                            feedback,
+                            memory_summary=verification_summary,
+                            memory_access=operator_memory,
+                        )
+                        verifier_choice = _invoke_operation(
+                            operation_journal,
+                            verification_operation,
+                            "operator_verification",
+                            verifier_input,
+                            lambda: self.operator.decide(verifier_input),
+                            workflow.state.value,
+                        )
+                        if not isinstance(verifier_choice, OperatorDecision):
+                            raise CoordinatorError(
+                                "Operator returned an invalid verification response."
+                            )
+                        if (
+                            verifier_choice.requests
+                            and workflow.investigation_cycles < workflow.max_investigation_cycles
+                        ):
+                            pending = verifier_choice.requests
+                            case = case.evolve(evidence_requests=pending)
+                            workflow = transition(
+                                WorkflowState.INVESTIGATING,
+                                evidence_request=pending[0],
+                                verification_feedback=feedback,
+                            )
+                            continue
+                        if verifier_choice.requests:
+                            workflow = transition(WorkflowState.ESCALATED)
+                            return _outcome(
+                                identity.workflow_id,
+                                WorkflowStatus.ESCALATED,
+                                workflow,
+                                case,
+                                trace,
+                                (
+                                    "Deterministic findings remain unresolved "
+                                    "at the investigation bound."
+                                ),
+                            )
+                        if not verifier_choice.finalize:
+                            workflow = transition(WorkflowState.ESCALATED)
+                            return _outcome(
+                                identity.workflow_id,
+                                WorkflowStatus.ESCALATED,
+                                workflow,
+                                case,
+                                trace,
+                                "Operator did not finalize after verification.",
+                            )
                     unresolved = {o.objection_id for o in case.objections} - {
                         r.objection_id
                         for r in case.resolutions
@@ -1343,14 +1598,18 @@ def _outcome(
     trace: WorkflowTrace,
     detail: str,
     evaluation: EvaluationWithReceipt | None = None,
+    failure_kind: WorkflowFailureKind | None = None,
 ) -> CoordinatedRun:
     if not trace.verify():
         raise CoordinatorError("Workflow trace integrity verification failed.")
+    if status == WorkflowStatus.FAILED and failure_kind is None:
+        failure_kind = WorkflowFailureKind.WORKFLOW_FAILURE
     result = OrchestrationResult(
         workflow_id,
         status,
         workflow.state,
         evaluation=evaluation,
+        failure_kind=failure_kind,
         detail=detail if status != WorkflowStatus.COMPLETED else None,
     )
     return CoordinatedRun(result, case, workflow, trace)
