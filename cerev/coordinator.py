@@ -142,6 +142,44 @@ class Investigator(Protocol):
 class Challenger(Protocol):
     def challenge(self, value: ChallengerInput) -> ChallengerTurn: ...
 
+class ReasonerRecommendation(StrEnum):
+    FINALIZE = "FINALIZE"
+    INVESTIGATE = "INVESTIGATE"
+    REVISE = "REVISE"
+    ESCALATE = "ESCALATE"
+    TERMINATE = "TERMINATE"
+
+
+@dataclass(frozen=True, slots=True)
+class ReasonerInput:
+    workflow_id: str
+    case_id: str
+    proposal_id: str
+    proposal: ActionProposal
+    case: CaseContext
+    package: EvidencePackage
+    feedback: VerificationFeedback
+    memory_summary: MemorySummary | None = None
+    memory_access: CaseMemoryAccess | None = None
+    world_model_projection: Any | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReasonerDecision:
+    recommendation: ReasonerRecommendation
+    rationale: str = ""
+    requests: tuple[EvidenceRequest, ...] = ()
+    revision: ProposedAction | None = None
+    revision_reason: str | None = None
+    escalate_reason: str | None = None
+    terminate_reason: str | None = None
+    key_findings: tuple[str, ...] = ()
+
+
+class Reasoner(Protocol):
+    def reason(self, value: ReasonerInput) -> ReasonerDecision: ...
+
+
 
 class ProposalRevisionPublisher(Protocol):
     """Optional source-owned write boundary for publishing a revised proposed action."""
