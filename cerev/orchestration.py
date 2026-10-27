@@ -905,7 +905,10 @@ class OrchestrationWorkflow:
 
         is_revision = revision is not None
         if is_revision:
-            if self.state != WorkflowState.REASONING or target != WorkflowState.INVESTIGATING:
+            if (
+                self.state not in (WorkflowState.REASONING, WorkflowState.VERIFYING)
+                or target != WorkflowState.INVESTIGATING
+            ):
                 raise ContractValidationError(
                     "Proposal revisions are only applied when re-investigating."
                 )
