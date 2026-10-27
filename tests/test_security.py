@@ -77,17 +77,19 @@ def test_bounded_limit_enforcement(sql_validator: SqlValidator):
     assert "LIMIT 100" in bounded_sql
     assert limit == 100
 
-    # With higher LIMIT: clamped to max_rows
+    # With higher LIMIT: clamped to max_rows and rewritten in SQL string
     bounded_sql, limit = sql_validator.enforce_bounded_sql(
         "SELECT * FROM cerev_phase124.cerev_main LIMIT 500"
     )
     assert limit == 100
+    assert bounded_sql == "SELECT * FROM cerev_phase124.cerev_main LIMIT 100"
 
     # With lower LIMIT: preserved
     bounded_sql, limit = sql_validator.enforce_bounded_sql(
         "SELECT * FROM cerev_phase124.cerev_main LIMIT 5"
     )
     assert limit == 5
+    assert bounded_sql == "SELECT * FROM cerev_phase124.cerev_main LIMIT 5"
 
 
 def test_credential_leakage_sanitization():
@@ -97,3 +99,82 @@ def test_credential_leakage_sanitization():
 
     assert raw_key not in sanitized
     assert "[REDACTED]" in sanitized
+
+
+def test_unauthorized_relation_in_nested_subquery(sql_validator: SqlValidator):
+    """Adversarial test: secret table hidden inside nested subquery."""
+    sql = "SELECT * FROM (SELECT * FROM secret_table) s"
+    with pytest.raises(DisallowedRelationError) as exc_info:
+        sql_validator.validate(sql)
+    assert "secret_table" in str(exc_info.value)
+
+
+def test_unauthorized_relation_in_cte(sql_validator: SqlValidator):
+    """Adversarial test: secret table hidden inside CTE definition."""
+    sql = "WITH allowed_cte AS (SELECT * FROM secret_table) SELECT * FROM allowed_cte"
+    with pytest.raises(DisallowedRelationError) as exc_info:
+        sql_validator.validate(sql)
+    assert "secret_table" in str(exc_info.value)
+
+
+def test_unauthorized_relation_in_multiple_joins(sql_validator: SqlValidator):
+    """Adversarial test: third table in a multi-join chain is unauthorized."""
+    sql = (
+        "SELECT a.*, b.*, c.* "
+        "FROM cerev_phase124.cerev_main a "
+        "JOIN cerev_contract_records_v1.cerev_contract_records_v1 b ON a.id = b.id "
+        "JOIN forbidden_schema.shadow_table c ON b.id = c.id"
+    )
+    with pytest.raises(DisallowedRelationError) as exc_info:
+        sql_validator.validate(sql)
+    assert "forbidden_schema.shadow_table" in str(exc_info.value)
+
+
+def test_quoted_and_escaped_identifiers(sql_validator: SqlValidator):
+    """Adversarial test: quoted identifiers with backticks or double quotes."""
+    # Allowed with quotes
+    valid_quoted = (
+        'SELECT * FROM `cerev_phase124`.`cerev_main` JOIN "cerev_phase124"."cerev_main" ON 1=1'
+    )
+    res = sql_validator.validate(valid_quoted)
+    assert "cerev_phase124.cerev_main" in res.referenced_tables
+
+    # Forbidden with quotes
+    forbidden_quoted = "SELECT * FROM `unapproved_schema`.`unapproved_table`"
+    with pytest.raises(DisallowedRelationError):
+        sql_validator.validate(forbidden_quoted)
+
+
+def test_undotted_unauthorized_table_rejection(sql_validator: SqlValidator):
+    """Adversarial test: un-dotted table names must not bypass allowlists."""
+    with pytest.raises(DisallowedRelationError):
+        sql_validator.validate("SELECT * FROM secret_table")
+
+
+def test_comma_separated_from_rejection(sql_validator: SqlValidator):
+    """Adversarial test: second table in comma-separated FROM is unauthorized."""
+    sql = "SELECT * FROM cerev_phase124.cerev_main, secret_shadow_table"
+    with pytest.raises(DisallowedRelationError) as exc_info:
+        sql_validator.validate(sql)
+    assert "secret_shadow_table" in str(exc_info.value)
+
+
+def test_where_in_subquery_rejection(sql_validator: SqlValidator):
+    """Adversarial test: secret table in WHERE x IN (SELECT ...)."""
+    sql = (
+        "SELECT * FROM cerev_phase124.cerev_main "
+        "WHERE client_id IN (SELECT id FROM unapproved_audit_log)"
+    )
+    with pytest.raises(DisallowedRelationError) as exc_info:
+        sql_validator.validate(sql)
+    assert "unapproved_audit_log" in str(exc_info.value)
+
+
+def test_mutating_keyword_in_subquery_rejected(sql_validator: SqlValidator):
+    """Adversarial test: mutating keyword inside a subquery is rejected."""
+    sql = (
+        "SELECT * FROM cerev_phase124.cerev_main "
+        "WHERE 1=1 AND (SELECT 1 FROM cerev_phase124.cerev_main DROP TABLE x)"
+    )
+    with pytest.raises(UnsafeQueryError):
+        sql_validator.validate(sql)
