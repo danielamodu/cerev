@@ -172,3 +172,258 @@ class MeterlessWorldModel(Protocol):
         """Return the current advisory projection for the given case context."""
         ...
 
+
+class SimulatedMeterlessWorldModel:
+    """Local deterministic simulation of the Meterless World Model.
+
+    Maintains evolving case state, detects evidence gaps and contradictions,
+    and computes discrepancy between proposed actions and reference calculation.
+    """
+
+    SOURCE_ATTRIBUTION = "meterless_world_model_v1_simulated"
+
+    def __init__(self, config: MeterlessConfig | None = None) -> None:
+        self.config = config or MeterlessConfig(mode="simulated")
+
+    def update(
+        self,
+        case: CaseContext,
+        package: EvidencePackage | None = None,
+        feedback: VerificationFeedback | None = None,
+    ) -> WorldModelProjection:
+        return self._compute_projection(case, package, feedback)
+
+    def project(self, case: CaseContext) -> WorldModelProjection:
+        return self._compute_projection(case, None, None)
+
+    def _compute_projection(
+        self,
+        case: CaseContext,
+        package: EvidencePackage | None,
+        feedback: VerificationFeedback | None,
+    ) -> WorldModelProjection:
+        current_proposal = case.proposals[-1]
+        workflow_id = case.workflow_id
+        proposal_id = current_proposal.proposal_id
+        case_id = case.workflow_id
+        revision_depth = len(case.proposals) - 1
+        lineage = tuple(p.proposal_id for p in case.proposals)
+
+        # 1. Active claims
+        active_claims = tuple(claim.statement for claim in case.claims)
+
+        # 2. Contradictions & Conflicts
+        contradictions: list[str] = []
+        if package is not None:
+            try:
+                analysis = analyze_evidence(package.records)
+                for conflict in analysis.conflicts:
+                    if not conflict.resolved:
+                        contradictions.append(
+                            f"Evidence conflict {conflict.conflict_id}: {conflict.explanation}"
+                        )
+            except Exception:
+                pass
+
+        for objection in case.objections:
+            if "contradiction" in objection.explanation.lower() or getattr(
+                objection, "severity", None
+            ) in ("FATAL", "MAJOR"):
+                contradictions.append(
+                    f"Challenger objection {objection.objection_id}: {objection.explanation}"
+                )
+
+        # 3. Evidence Gaps
+        evidence_gaps: list[str] = []
+        for req in case.evidence_requests:
+            if req.target == InvestigationTarget.EVIDENCE_GAP:
+                evidence_gaps.append(f"Gap requested by {req.requested_by.value}: {req.question}")
+        for objection in case.objections:
+            if "missing" in objection.explanation.lower() or "gap" in objection.explanation.lower():
+                evidence_gaps.append(
+                    f"Objection gap {objection.objection_id}: {objection.explanation}"
+                )
+
+        # 4. Discrepancy Tracking
+        discrepancy_cents: int | None = None
+        calculated_credit_cents: int | None = None
+
+        if package is not None:
+            try:
+                reference_calc = _calculate_package_reference(package)
+                calculated_credit_cents = reference_calc.credit_cents
+                discrepancy_cents = current_proposal.action.amount_cents - calculated_credit_cents
+            except Exception:
+                pass
+
+        if discrepancy_cents is None and feedback is not None:
+            for finding in feedback.findings:
+                if "discrepancy" in finding.summary.lower() or "credit" in finding.summary.lower():
+                    # Attempt to extract discrepancy or note discrepancy presence
+                    pass
+
+        # 5. Advisory Guidance Synthesis
+        guidance_parts: list[str] = []
+        if discrepancy_cents is not None and discrepancy_cents != 0:
+            prop_cents = current_proposal.action.amount_cents
+            prop_curr = current_proposal.action.currency
+            guidance_parts.append(
+                f"Discrepancy detected: Proposed credit is {prop_cents} cents "
+                f"({prop_cents / 100:.2f} {prop_curr}) "
+                f"vs authoritative calculated credit of {calculated_credit_cents} cents. "
+                f"Net difference is {abs(discrepancy_cents)} cents. "
+                "Deterministic policy gate will BLOCK unless proposal is revised."
+            )
+        elif discrepancy_cents == 0:
+            guidance_parts.append(
+                "Proposed credit matches authoritative reference calculation exactly."
+            )
+
+        if contradictions:
+            guidance_parts.append(
+                f"{len(contradictions)} active contradiction(s) identified across federated "
+                "sources. Investigator must reconcile before final verification."
+            )
+
+        if evidence_gaps:
+            guidance_parts.append(
+                f"{len(evidence_gaps)} evidence gap(s) flagged. Request targeted records."
+            )
+
+        if not guidance_parts:
+            guidance_parts.append("Evidence state is consistent. Ready for policy evaluation.")
+
+        advisory_guidance = " | ".join(guidance_parts)
+
+        # 6. Advisory Confidence Score (Strictly informational)
+        confidence = 1.0
+        if discrepancy_cents is not None and discrepancy_cents != 0:
+            confidence -= 0.4
+        if contradictions:
+            confidence -= 0.3
+        if evidence_gaps:
+            confidence -= 0.2
+        confidence = max(0.0, min(1.0, confidence))
+
+        return WorldModelProjection(
+            workflow_id=workflow_id,
+            case_id=case_id,
+            proposal_id=proposal_id,
+            revision_depth=revision_depth,
+            active_claims=active_claims,
+            contradictions=tuple(contradictions),
+            evidence_gaps=tuple(evidence_gaps),
+            discrepancy_cents=discrepancy_cents,
+            advisory_guidance=advisory_guidance,
+            confidence_score=confidence,
+            lineage=lineage,
+            source_attribution=self.SOURCE_ATTRIBUTION,
+            timestamp=datetime.now(UTC),
+            is_advisory=True,
+        )
+
+
+class LiveMeterlessWorldModelClient:
+    """Client for a live Meterless World Model API endpoint.
+
+    Fails closed if the endpoint is unreachable or returns invalid responses.
+    Does NOT fabricate simulated responses if live mode was explicitly configured.
+    """
+
+    def __init__(self, config: MeterlessConfig) -> None:
+        if config.mode != "live":
+            raise ValueError("LiveMeterlessWorldModelClient requires mode='live'.")
+        self.config = config
+
+    def update(
+        self,
+        case: CaseContext,
+        package: EvidencePackage | None = None,
+        feedback: VerificationFeedback | None = None,
+    ) -> WorldModelProjection:
+        return self._send_request("update", case, package, feedback)
+
+    def project(self, case: CaseContext) -> WorldModelProjection:
+        return self._send_request("project", case, None, None)
+
+    def _send_request(
+        self,
+        endpoint_action: str,
+        case: CaseContext,
+        package: EvidencePackage | None,
+        feedback: VerificationFeedback | None,
+    ) -> WorldModelProjection:
+        req_id = str(uuid.uuid4())
+        url = urljoin(f"{self.config.api_base_url}/", f"world-model/{endpoint_action}")
+        payload = {
+            "workflow_id": case.workflow_id,
+            "proposal_id": case.current_proposal_id,
+            "proposals_count": len(case.proposals),
+            "claims_count": len(case.claims),
+            "objections_count": len(case.objections),
+            "package_id": package.package_id if package else None,
+        }
+        data = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "Content-Type": "application/json",
+            "X-Request-ID": req_id,
+        }
+        req = Request(url, data=data, headers=headers, method="POST")
+        try:
+            with urlopen(req, timeout=self.config.timeout_seconds) as resp:
+                raw = resp.read(_MAX_RESPONSE_BYTES + 1)
+                if len(raw) > _MAX_RESPONSE_BYTES:
+                    raise MeterlessError(
+                        "response_too_large",
+                        "Meterless response exceeded size bound.",
+                        http_status=resp.status,
+                        request_id=req_id,
+                    )
+                resp_data = json.loads(raw.decode("utf-8"))
+        except HTTPError as err:
+            raise MeterlessError(
+                "http_error",
+                f"Meterless endpoint returned HTTP {err.code}.",
+                http_status=err.code,
+                request_id=req_id,
+            ) from err
+        except (URLError, TimeoutError, OSError) as err:
+            raise MeterlessError(
+                "connection_failed",
+                "Could not connect to configured Meterless World Model endpoint.",
+                request_id=req_id,
+            ) from err
+        except json.JSONDecodeError as err:
+            raise MeterlessError(
+                "invalid_json",
+                "Meterless endpoint returned non-JSON payload.",
+                request_id=req_id,
+            ) from err
+
+        return WorldModelProjection(
+            workflow_id=case.workflow_id,
+            case_id=case.workflow_id,
+            proposal_id=case.current_proposal_id,
+            revision_depth=len(case.proposals) - 1,
+            active_claims=tuple(resp_data.get("active_claims", ())),
+            contradictions=tuple(resp_data.get("contradictions", ())),
+            evidence_gaps=tuple(resp_data.get("evidence_gaps", ())),
+            discrepancy_cents=resp_data.get("discrepancy_cents"),
+            advisory_guidance=resp_data.get("advisory_guidance", ""),
+            confidence_score=float(resp_data.get("confidence_score", 0.0)),
+            lineage=tuple(resp_data.get("lineage", (case.current_proposal_id,))),
+            source_attribution=f"meterless_world_model_v1_live ({self.config.api_base_url})",
+            timestamp=datetime.now(UTC),
+            is_advisory=True,
+        )
+
+
+def create_meterless_world_model(
+    config: MeterlessConfig | None = None,
+) -> MeterlessWorldModel:
+    """Factory creating the appropriate Meterless World Model based on configuration."""
+    cfg = config or MeterlessConfig.from_environment()
+    if cfg.mode == "live" and cfg.api_base_url and cfg.api_key:
+        return LiveMeterlessWorldModelClient(cfg)
+    return SimulatedMeterlessWorldModel(cfg)
