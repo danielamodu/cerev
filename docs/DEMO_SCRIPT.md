@@ -53,7 +53,7 @@
 >
 > **Step 1:** The Investigator retrieves 18 evidence records across the five federated silos via Zetaris.
 >
-> **Step 2:** The Meterless World Model projects the case state: it flags that the calculated SLA credit is $192.00, detecting a -$144.00 net discrepancy against the proposed $48.00 credit.
+> **Step 2:** The Meterless World Model projects the case state: it flags that the calculated SLA credit is $192.00, detecting a -$144.00 net discrepancy against the proposed $48,800.00 credit.
 >
 > **Step 3:** Our adversarial NVIDIA Nemotron Challenger interrogates the maintenance records. It uncovers that maintenance notices were delivered only 41, 37, and 34 hours in advance — violating the strict 48-hour prior written notice clause in Contract V4.
 >
@@ -81,7 +81,7 @@
 > Now watch the cryptographic boundary:
 > 1. An ephemeral Ed25519 signing authority issues a tamper-evident Execution Permit bound to the receipt hash, action fingerprint, and fresh 32-byte nonce.
 > 2. The Protected Execution Boundary verifies the signature against trusted keys.
-> 3. Execution attempt 1 **succeeds** ($192.00 credit issued).
+> 3. Execution attempt 1 **succeeds** ($192,800.00 credit issued).
 > 4. Execution attempt 2 — an adversarial replay attack using the same permit — is **instantly rejected** by the SQLite idempotent store. The state never corrupts."
 
 ---
