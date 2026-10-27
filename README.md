@@ -1,8 +1,26 @@
-# CEREV
+<p align="center">
+  <img src="assets/logo.png" alt="CEREV Logo" width="180" />
+</p>
 
-**Pre-Execution Evidence Integrity Layer for Autonomous Agents**
+<h1 align="center">CEREV</h1>
 
-> *"Agents are great at deciding what to do, and terrible at proving their evidence hasn't expired or been contradicted. CEREV is the pre-execution integrity gate that forces an agent to prove its action across federated silos before money or state moves."*
+<p align="center">
+  <strong>Pre-Execution Evidence Integrity Layer for Autonomous Agents</strong>
+</p>
+
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.12%2B-blue?style=flat-square&logo=python&logoColor=white" />
+  <img alt="Tests" src="https://img.shields.io/badge/tests-413%20passing-brightgreen?style=flat-square&logo=pytest&logoColor=white" />
+  <img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json&style=flat-square" />
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" />
+  <img alt="Hackathon" src="https://img.shields.io/badge/Open%20Agent%20Hackathon%202026-Track%203%3A%20Reasoning-blueviolet?style=flat-square" />
+  <img alt="Zetaris" src="https://img.shields.io/badge/Zetaris-Live%20Verified-0057FF?style=flat-square" />
+  <img alt="NVIDIA" src="https://img.shields.io/badge/NVIDIA%20Nemotron-Challenger-76B900?style=flat-square&logo=nvidia&logoColor=white" />
+</p>
+
+<p align="center">
+  <em>"Agents are great at deciding what to do, and terrible at proving their evidence hasn't expired or been contradicted.<br/>CEREV is the pre-execution integrity gate that forces an agent to prove its action across federated silos before money or state moves."</em>
+</p>
 
 ---
 
