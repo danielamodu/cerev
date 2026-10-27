@@ -59,6 +59,7 @@ _MODULES = (
     "cerev.conflicts",
     "cerev.receipt",
     "cerev.memory",
+    "cerev.agent_roles",
 )
 
 
