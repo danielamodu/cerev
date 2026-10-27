@@ -12,6 +12,7 @@ dependencies = ["cryptography>=44.0", "python-dotenv>=1.0"]
 
 [project.scripts]
 cerev-protected-demo = "cerev.demo:main"
+cerev-nightshift-smoke = "cerev.nightshift:smoke_test_main"
 
 [project.optional-dependencies]
 dev = [

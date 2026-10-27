@@ -19,6 +19,7 @@ def test_planned_modules_import() -> None:
         "retrieval_direct",
         "adapter",
         "orchestration",
+        "nightshift",
     )
 
     for module in modules:
