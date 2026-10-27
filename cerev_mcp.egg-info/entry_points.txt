@@ -1,0 +1,3 @@
+[console_scripts]
+cerev = cerev_mcp.server:main
+cerev-mcp = cerev_mcp.server:main
