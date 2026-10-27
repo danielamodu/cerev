@@ -96,6 +96,8 @@ Runtime dependencies are `cryptography` for Ed25519 and `python-dotenv` for expl
 - `cerev/adapter.py`: permit verification, atomic SQLite nonce reservation, execution state, and simulated target.
 - `cerev/demo.py`: explicit sample-only demonstration collecting canonical `BLOCK` and synthetic `PERMIT` cases through the configured evidence provider and source adapters.
 - `cerev/config.py`, `cerev/v21_simulation.py`, `cerev/validation.py`, `cerev/nonce.py`, and `cerev/retrieval_direct.py`: reserved modules for future phases.
+- `cerev/nightshift.py`: Phase 13.1 Meterless Nightshift provider client, model-invocation trace, and opt-in live smoke test.
+- `cerev/agent_roles.py`: Phase 13.2 LLM-powered role adapters (Investigator, Challenger, Operator, Reasoner) with a mock provider for offline testing.
 
 The `fixture/` directory contains the Phase 1 datasets and guide. The Phase 8 adapter API and simulation limitations are documented in [docs/independent-evidence-sources.md](docs/independent-evidence-sources.md). See [docs/conflict-detection-and-policy.md](docs/conflict-detection-and-policy.md) for Phase 4 behavior, [docs/decision-receipts-and-replay.md](docs/decision-receipts-and-replay.md) for Phase 5, [docs/execution-permits.md](docs/execution-permits.md) for Phase 6, and [docs/protected-execution.md](docs/protected-execution.md) for Phase 7 guarantees and limitations.
 
@@ -106,3 +108,17 @@ Phase 10 persistence, checkpointing, concurrency, recovery, trace integrity, and
 Phase 11 memory objects, relationship semantics, role access, coordinator feedback, atomic persistence, migration, and limitations are described in [docs/shared-reasoning-memory.md](docs/shared-reasoning-memory.md).
 
 Phase 12 direct REST and source mapping history is described in [docs/zetaris-integration.md](docs/zetaris-integration.md). The Phase 12.1 Gateway contract and live smoke results are described in [docs/zetaris-gateway-proxy.md](docs/zetaris-gateway-proxy.md). The contract transport status and remaining live-source blockers are described in [docs/zetaris-contract-transport.md](docs/zetaris-contract-transport.md).
+
+Phase 13.1 adds a Meterless Nightshift provider abstraction with a fail-closed, OpenAI-compatible `/v1` chat-completions client. The client never falls back silently to another backend; credentials are excluded from repr, error output, and trace metadata; and configured versus actual serving-model identity is captured when the provider returns it. Use the opt-in live smoke test to verify configuration against a real deployment:
+
+```sh
+# Requires NIGHTSHIFT_API_BASE_URL, NIGHTSHIFT_API_KEY, and NIGHTSHIFT_MODEL
+# set in the environment or .env file. Does not print credentials.
+cerev-nightshift-smoke
+# or equivalently:
+python -m cerev.nightshift
+```
+
+The Phase 13.1 verification report (API contract, live smoke-test result, model attribution limitations) is in [docs/nightshift-provider.md](docs/nightshift-provider.md).
+
+Phase 13.2 adds four LLM-powered role adapters (Investigator, Challenger, Operator, and Reasoner) in `cerev/agent_roles.py`. Each adapter wraps the Nightshift provider abstraction and produces typed, validated outputs compatible with the Phase 9.1 orchestration contracts. The Investigator retrieves and interprets evidence; the Challenger scrutinizes claims and requests follow-up; the Operator steers the case through verify, finalize, escalate, or revise decisions; and the Reasoner synthesizes findings into a final recommendation for the deterministic policy gate. None of these roles may authorize or execute actions — that remains the sole authority of the deterministic policy gate. A `MockNightshiftProvider` is included for offline testing; all role adapters are exercised by mocked tests in `tests/test_agent_roles.py`.

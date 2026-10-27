@@ -37,6 +37,7 @@ class AgentRole(StrEnum):
     OPERATOR = "OPERATOR"
     INVESTIGATOR = "INVESTIGATOR"
     CHALLENGER = "CHALLENGER"
+    REASONER = "REASONER"
 
 
 class ClaimKind(StrEnum):
@@ -749,6 +750,10 @@ class CaseContext:
                 raise ContractValidationError(
                     "Verification feedback must reference a workflow proposal."
                 )
+
+    @property
+    def case_id(self) -> str:
+        return self.workflow_id
 
     def evolve(
         self,
